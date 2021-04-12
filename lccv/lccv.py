@@ -1,10 +1,12 @@
 import numpy as np
+import pandas as pd
 import scipy.stats
 import time
 import random
 from tqdm.notebook import tqdm
 import sklearn.metrics
 from evalutils import evaluate
+from func_timeout import func_timeout, FunctionTimedOut
 
 def getSlopes(anchor_points, observations):
     slopes = []
@@ -66,148 +68,390 @@ def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
         bootstraps.append(stats(sub_sample))
     return bootstraps
 
-'''
- The learning-curve based validation mechanism
- 
- Params:
-     - learner: the learner *class*
-     - X, y: the data for validation
-     - target_size: The training size relevant for making the model selection decision (default: 90% of the given data)
-     - r: reference score that needs to be achieved so that the exact score is required
-     - min_stages: minimum number of anchor points that should be used
-     - timeout: timeout for the validation process (in seconds)
-     - k: number of repeats in the base evaluation that is tried to beat
-     - min_exp: minimum exponent (of 2) used to compute the smallest anchor point (default 6, i.e. the smallest anchor is 2^6 = 64)
-     - alpha: factor by which the *last* stage should exceed the base repeats k
-     - gamma: factor by which the *first* stage should exceed the base repeats k
-'''
-def lccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=60, k = 10, min_exp = 6, alpha = .5, gamma=2):
+class EmpiricalLearningModel:
     
-    deadline = time.time() + timeout
-    print("Running LCCV with timeout",timeout)
+    def __init__(self, learner, X, y):
+        self.learner = learner
+        self.X = X
+        self.y = y
+        self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate", "runtime"])
     
-    n = X.shape[0]
-    if target_size is None:
-        target_size = 0.9 * n
-        print("Setting target size to " + str(target_size) + " as 90% of the original dataset.")
+    def compute_and_add_sample(self, size, seed = None, timeout = None):
+        tic = time.time()
+        if seed is None:
+            seed = int(tic)
+        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000)
+        toc = time.time()
+        self.df.loc[len(self.df)] = [size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
+        self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
     
-    # compute budgets and phases
-    max_exp, repeats = getStagesAndBudgets(X.shape[0], gamma)
-    print(min_exp, max_exp, repeats)
-    anchors = list(range(min_exp, max_exp + 1))
+    def get_values_at_anchor(self, anchor):
+        return self.df[self.df["trainsize"] == anchor]["error_rate"].values
+        
+    def get_ipl_estimate_at_target(self, target):
+        return self.get_ipl()(target)
     
-    # start LCCV algorithm
+    def get_confidence_interval(self, size):
+        dfProbesAtSize = self.df[self.df["trainsize"] == size]
+        return 
     
-    observations = []
-    mean_observations = []
+    def get_normal_estimates(self, size = None):
+        
+        if size is None:
+            sizes = sorted(np.unique(self.df["trainsize"]))
+            out = {}
+            for size in sizes:
+                out[size] = self.get_normal_estimates(size)
+            return out
     
-    for stage_id, exp in enumerate(tqdm(anchors)):
-        if time.time() > deadline:
-            break
-        num_examples = 2**exp
-        num_evaluations = repeats[stage_id]
-        print ("Running stage for " + str(num_examples) + " examples. At most " + str(num_evaluations) + " evaluations will be allowed.")
-        
-        stabilized = False
-        
-        observations_at_anchor = []
-        variances = []
-        
-        base_evaluations = 0
-        while not stabilized and base_evaluations < num_evaluations and time.time() < deadline:
-            observations_at_anchor.append(evaluate(learner, X, y, num_examples))
-            
-            # criterion 1: low variance in mean estimation
-            if len(observations_at_anchor) > 2:
-                bootstrap_samples = get_bootstrap_samples(observations_at_anchor, n = 100)
-                variances.append(np.var(bootstrap_samples))
-                stabilized = variances[-1] < 0.00001
-            base_evaluations += 1
-        
-        observations.append(observations_at_anchor)
-        mean_observations.append(mean(observations_at_anchor))
-        print("Obtained low-variance result for stage " + str(exp))
-        
-        # "repair" curve until convex
-        print(len(mean_observations))
-        expected = np.array(range(len(mean_observations)))
-        mismatches = (-np.array(mean_observations)).argsort() != expected
-        reevaluations = 0
-        while np.count_nonzero(mismatches) and len(observations[stage_id]) < repeats[stage_id] and time.time() < deadline:
-            reevaluate = np.where(mismatches)[0]
-            print("Found mismatches.", (-np.array(mean_observations)).argsort(), expected, mismatches, "Re-Evaluating", reevaluate)
-            any_adjusted = False
-            for i in reevaluate:
-                if len(observations[i]) < repeats[i]:
-                    print("Re-Evaluting", 2**anchors[i])
-                    new_score = evaluate(learner, X, y, 2**anchors[i])
-                    observations[i].append(new_score)
-                    mean_prev = mean_observations[i]
-                    mean_observations[i] = mean(observations[i])
-                    print("Updated mean", mean_observations[i], "previously was",mean_prev)
-                    any_adjusted = True
-            if not any_adjusted:
-                break
-            sorted_anchor_indices = (-np.array(mean_observations)).argsort()
-            print(sorted_anchor_indices, mean_observations)
-            mismatches = sorted_anchor_indices != expected
-            reevaluations += 1
-        
-        
-        slopes = getSlopes([2**e for e in anchors], observations)
-        print("slopes:", slopes)
-        faulty_segments = [i for i, s in enumerate(slopes) if i > 0 and s < slopes[i-1]]
-        while len(faulty_segments) > 0 and base_evaluations < num_evaluations and time.time() < deadline:
-            reevaluate = []
-            for i in faulty_segments:
-                reevaluate = reevaluate + [i-1, i, i+1]
-            reevaluate = list(np.unique(reevaluate))
-            for i in reevaluate:
-                if len(observations[i]) < repeats[i] and time.time() < deadline:
-                    print("Re-Evaluting", 2**anchors[i])
-                    new_score = evaluate(learner, X, y, 2**anchors[i])
-                    observations[i].append(new_score)
-                    mean_prev = mean_observations[i]
-                    mean_observations[i] = mean(observations[i])
-                    print("Updated mean", mean_observations[i], "previously was",mean_prev)
-            slopes = getSlopes([2**e for e in anchors], observations)
-            print("slopes:", slopes)
-            faulty_segments = [i for i, s in enumerate(slopes) if i > 0 and s < slopes[i-1]]
-            base_evaluations += 1
-        
-        #for i, obs in enumerate(slopes):
-        
-        if len(faulty_segments) == 0:
-            print("Obtained stable result for stage " + str(exp))
+        dfProbesAtSize = self.df[self.df["trainsize"] == size]
+        mu = np.mean(dfProbesAtSize["error_rate"])
+        sigma = np.std(dfProbesAtSize["error_rate"])
+        return {
+            "n": len(dfProbesAtSize["error_rate"]),
+            "mean": mu,
+            "std": sigma,
+            "conf": scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize)))
+        }        
+    
+    def get_slope_ranges(self):
+        est = self.get_normal_estimates()
+        sizes = [s for s in est]
+        ranges = []
+        for i, size in enumerate(sizes):
+            if i > 0:
+                s1 = sizes[i - 1]
+                s2 = sizes[i]
+                
+                if est[s1]["n"] > 1:
+                    lower_prev_last = est[s1]["conf"][0]
+                    upper_prev_last = est[s1]["conf"][1]
+                else:
+                    lower_prev_last = upper_prev_last = est[s1]["mean"]
+                if est[s2]["n"] > 1:
+                    lower_last = est[s2]["conf"][0]
+                    upper_last = est[s2]["conf"][1]
+                else:
+                    lower_last = upper_last = est[s2]["mean"]
+                ranges.append((min(0, (upper_last - lower_prev_last) / (s2 - s1)), min(0, (lower_last - upper_prev_last) / (s2 - s1))))
+        return ranges
+    
+    def get_slope_range_in_last_segment(self):
+        return self.get_slope_ranges()[-1]
+    
+    def get_performance_interval_at_target(self, target):
+        pessimistic_slope, optimistic_slope = self.get_slope_range_in_last_segment()
+        sizes = sorted(np.unique(self.df["trainsize"]))
+        last_size = sizes[-1]
+        normal_estimates = self.get_normal_estimates()[last_size]
+        if normal_estimates["n"] > 1:
+            last_conf = normal_estimates["conf"]
+            last_conf_lower = last_conf[0]
+            last_conf_upper = last_conf[1]
         else:
-            print("Stopped stage " + str(exp) + " with unstable result.")
-#        plt.plot(variances)
+            last_conf_lower = last_conf_upper = normal_estimates["mean"]
+            last_conf = (last_conf_lower, last_conf_upper)
+        if any(np.isnan(last_conf)):
+            raise Exception("Confidence interval must not be nan!")
+        if np.isnan(optimistic_slope):
+            raise Exception("Slope must not be nan")
+        return pessimistic_slope * (target - last_size) + last_conf_upper, optimistic_slope * (target - last_size) + last_conf_lower
         
+    def get_ipl(self):
+        sizes = sorted(list(pd.unique(self.df["trainsize"])))
+        scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate"]) for s in sizes]
+        def ipl(beta):
+            a, b, c = tuple(beta.astype(float))
+            pl = lambda x: a + b * x **(-c)
+            penalty = []
+            for i, size in enumerate(sizes):
+                penalty.append((pl(size) - scores[i])**2)
+            return np.array(penalty)
+
+        a, b, c = tuple(scipy.optimize.least_squares(ipl, np.array([1,1,1]), method="lm").x)
+        return lambda x: a + b * x **(-c)
+    
+    def predict_runtime(self, target_size):
+        lr = sklearn.linear_model.LinearRegression()
+        X = self.df[["trainsize"]].values
+        X = np.row_stack([X, [[0]]])
+        X = np.column_stack([X, X[:]**2])
+        y = self.df["runtime"].values
+        y = np.append(y, [0])
+        lr.fit(X, y)
+        b = np.abs(lr.coef_[0])
+        a = np.abs(lr.coef_[1])
+        return a * (target_size**2) + b * target_size + lr.intercept_
+    
+    def get_max_size_for_runtime(self, runtime):
+        lr = sklearn.linear_model.LinearRegression()
+        X = self.df[["trainsize"]].values
+        X = np.row_stack([X, [[0]]])
+        X = np.column_stack([X, X[:]**2])
+        y = self.df["runtime"].values
+        y = np.append(y, [0])
+        lr.fit(X, y)
+        b = np.abs(lr.coef_[0])
+        a = np.abs(lr.coef_[1])
+        inner = (-b/(2 * a))**2 - (lr.intercept_ - runtime) / a
+        return -b/(2 * a) + np.sqrt(inner)
+
+    def plot_model(self, ax = None):
+        estimates = self.get_normal_estimates()
+        sizes = [s for s in estimates]
+        means = [estimates[s]["mean"] for s in sizes]
+        lower = [estimates[s]["conf"][0] for s in sizes]
+        upper = [estimates[s]["conf"][1] for s in sizes]
+        if ax is None:
+            fig, ax = plt.subplots()
+        ax.plot(sizes, means)
+        ax.fill_between(sizes, lower, upper, alpha=0.2)
+    
+
+def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=10, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, return_estimate_on_incomplete_runs=False, verbose=False):
+    
+    # intialize
+    tic = time.time()
+    deadline = tic + timeout
+    elm = EmpiricalLearningModel(learner_inst, X, y)
+    
+    # configure the exponents and status variables
+    MAX_EVALUATIONS = 10
+    base = 2
+    target = int(np.floor(X.shape[0] * 0.9))
+    min_exp = 6
+    max_exp = np.log(target) / np.log(base)
+    seed = 0
+    reachable = True
+    estimate_history = []
+    stable_anchors = []
+    hold_out_mode = False
+    max_conf_interval_size_default = 0.1
+    max_conf_interval_size_target = 0.01
+    
+    if verbose:
+        print("Running LCCV on " + str(X.shape) + "-shaped data for learner " + str(learner_inst) + " with r = " + str(r) + ". Overview:\n\tmin_exp: " + str(min_exp) + "\n\tmax_exp: " + str(max_exp))
+    
+    # while we can still reach the target value r but have not yet reached it, keep running.
+    cur_exp = min_exp
+    eval_counter = {}
+    timeouted = False
+    while reachable and cur_exp <= max_exp and not timeouted:
+    
+        if cur_exp == max_exp:
+            if verbose:
+                print("Reached full dataset size. Disabling max number of evaluations (setting it to 10).")
+            MAX_EVALUATIONS = 10
         
+        # get samples until the variance of the sample mean is believed to be small
+        stable = cur_exp in stable_anchors
+        size = int(np.round(base ** cur_exp))
         
-        # get projections
-        if len(slopes) > 0 and stage_id + 1 >= min_stages:
+        if hold_out_mode:
+            if verbose:
+                print("Adding hold-out point at size " + str(size))
+            try:
+                seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
+                elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000)
+            except FunctionTimedOut:
+                timeouted = True
+                if verbose:
+                    print("Timeouted")
+                break
+        
+        else:
+            while reachable and not stable:
+                if not cur_exp in eval_counter:
+                    eval_counter[cur_exp] = 0
+                if eval_counter[cur_exp] >= MAX_EVALUATIONS:
+                    stable = True
+                    if verbose:
+                        print("Maximum number of evaluations reached.")
+                    break
+                
+                if verbose:
+                    print("Adding point at size " + str(size))
+                try:
+                    seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
+                    elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000)
+                except FunctionTimedOut:
+                    timeouted = True
+                    if verbose:
+                        print("Timeouted")
+                    break
+                
+                eval_counter[cur_exp] += 1
+                values_at_anchor = elm.get_values_at_anchor(size)
+                std = np.std(values_at_anchor)
+                if verbose:
+                    print("std of " + str(values_at_anchor) + ": " + str(std))
+                if std == 0:
+                    stable = len(values_at_anchor) > 2
+                else:
+                    conf_interval = scipy.stats.norm.interval(0.9, loc=np.mean(values_at_anchor), scale=np.std(values_at_anchor)/np.sqrt(len(values_at_anchor)))
+                    conf_interval_size = (conf_interval[1] - conf_interval[0])
+                    cond_conf_interval_size = conf_interval_size < max_conf_interval_size_default if cur_exp < max_exp else conf_interval_size < max_conf_interval_size_target
+                    if verbose:
+                        print("Confidence bounds for performance interval at " + str(size) + ": " + str(conf_interval) + ". Size: " + str(conf_interval_size))
+                    
+                    stable = cond_conf_interval_size and (cur_exp - min_exp >= 3 or eval_counter[cur_exp] >= 3)
+                    
+                    if cur_exp == max_exp:
+                        reachable = conf_interval[0] <= r
+                        if not reachable:
+                            if verbose:
+                                print("GOAL NOT REACHABLE ANYMORE!")
+                            break
+                    
+                if stable:
+                    if eval_counter[cur_exp] <= 2:
+                        if verbose:
+                            print("Switching to hold-out mode.")
+                        hold_out_mode = True
+                    stable_anchors.append(cur_exp)
             
-            ## convex bound
-            last_negative_slope_index = len(slopes) - 1
-            while slopes[last_negative_slope_index] > 0:
-                last_negative_slope_index -= 1
-            slope = slopes[last_negative_slope_index]
-            projected_score = mean_observations[stage_id] + (target_size - num_examples) * slope
-            print("Projected score for target size " + str(target_size) + " (from anchor " + str(num_examples) + " with mean " + str(mean_observations[stage_id]) + " and slope " + str(slope) + "):", projected_score)
-            if projected_score > r:
-                print("Impossibly competitive, stopping execution.")
-                return np.mean(observations[-1]), anchors, observations
-        
-            ## inverse power law approximation
-            indices = [i for i, exp in enumerate(anchors[:len(mean_observations)]) if exp >= 3][-4:]
-            if len(indices) >= 3:
-                sizes = np.array([2**e for e in anchors])[indices]
-                scores =  np.array(mean_observations)[indices]
-                pl_approx = getLCApproximation(sizes, scores)
-                #fig, ax = plt.subplots()
-                #ax.plot(sizes, scores)
-                #domain = np.linspace(0, 10000, 100)
-                #ax.plot(domain, pl_approx(domain))
-                #plt.show()
-    return np.mean(observations[-1]), anchors, observations
+            if cur_exp < max_exp and len(elm.get_values_at_anchor(size)) >= 1:
+                almost_reached = np.mean(elm.get_values_at_anchor(size)) <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION
+                if almost_reached:
+                    if cur_exp == max_exp and stable:
+                        if verbose:
+                            print("Stopping LCCV construction since last stage is stable.")
+                        break
+                    else:
+                        if verbose:
+                            print("Reached r-score up to a precision of " + str(MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION) + "!")
+                            print("Stopping LC construction and setting exponent to maximum " + str(max_exp) + ".")
+                        remaining_time = deadline - time.time()
+                        max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
+                        feasible_target = min(target, max_size_in_timeout)
+                        cur_exp = np.log(feasible_target) / np.log(base)
+                        hold_out_mode = False
+                        if verbose:
+                            print("Setting exponent to maximally possible in remaining time " + str(remaining_time) + "s according to current belief.")
+                            print("Max size in timeout:",max_size_in_timeout)
+                            print("Expected runtime at that size:", elm.predict_runtime(max_size_in_timeout))
+                            print("Feasible target:",feasible_target)
+                            print("Setting exponent to", cur_exp)
+                        continue
+            
+        # check whether the goal is still reachable
+        if cur_exp > min_exp:
+            
+            if cur_exp == max_exp and stable:
+                if verbose:
+                    print("Stopping LCCV construction since last stage is stable.")
+                break
+            
+            
+            bounds = elm.get_performance_interval_at_target(target)
+            if verbose:
+                print("Estimated bounds for performance interval at " + str(target) + ": " + str(bounds))
+            reachable = bounds[1] <= r
+            if not reachable:
+                pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
+                if verbose:
+                    print("Impossibly reachable, stopping.")
+                    print("Details about stop:")
+                    print("Data: " + str(elm.df))
+                    print("Normal Estimates:" + str(elm.get_normal_estimates()))
+                    print("Slope Ranges:", elm.get_slope_ranges())
+                    print("Optimistic slope:", optimistic_slope)
+                sizes = sorted(np.unique(elm.df["trainsize"]))
+                i = -1
+                while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
+                    i -= 1
+                last_size = sizes[i]
+                normal_estimates = elm.get_normal_estimates()
+                normal_estimates_last = normal_estimates[last_size]
+                last_conf = normal_estimates_last["conf"]
+                last_conf_lower = last_conf[0]
+                last_conf_upper = last_conf[1]
+                if np.isnan(last_conf_lower):
+                    last_conf_lower = last_conf_upper = normal_estimates["mean"]
+                    last_conf = (last_conf_lower, last_conf_upper)
+                if verbose:
+                    print("Last size:", last_size)
+                    print("Remaining steps:", (target - last_size))
+                    print("offset:", last_conf_lower)
+                    print("Prediction:", optimistic_slope * (target - last_size) + last_conf_lower)
+                
+                return np.nan, normal_estimates_last["mean"], normal_estimates, elm
+            
+            if cur_exp > min_exp + 1 and cur_exp < max_exp:
+                estimation = elm.get_ipl_estimate_at_target(target)
+                estimate_history.append(estimation)
+                if verbose:
+                    print("IPL Estimate for target is " + str(estimation) + ".")
+                if estimation <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION:
+                    remaining_time = deadline - time.time()
+                    max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
+                    feasible_target = min(target, max_size_in_timeout)
+                    cur_exp = np.log(feasible_target) / np.log(base)
+                    hold_out_mode = False
+                    MAX_EVALUATIONS = 10
+                    
+                    if verbose:
+                        print("This IS close enough for full evaluation.")
+                        print("Setting exponent to maximally possible in remaining time " + str(remaining_time) + "s according to current belief.")
+                        print("Max size in timeout:",max_size_in_timeout)
+                        print("Expected runtime at that size:", elm.predict_runtime(max_size_in_timeout))
+                        print("Feasible target:",feasible_target)
+                        print("Setting exponent to", cur_exp)
+                        print("Disabling max number of evaluations (setting it to 10).")
+                    continue
+                else:
+                    if verbose:
+                        print("This is NOT close enough for full evaluation. Continuing.")
+            else:
+                if verbose:
+                    print("Not enough anchor points yet to get an IPL estimate.")
+    
+        # check whether after-evaluations are necessary
+        slope_ranges = elm.get_slope_ranges()
+        ordered_slopes = np.array(np.argsort([s[1] for s in slope_ranges]))
+        mismatches = np.where(ordered_slopes != np.array(range(len(ordered_slopes))))[0]
+        if len(mismatches) > 0:
+            act_exp = cur_exp
+            cur_exp = min_exp + min(mismatches)
+            if verbose:
+                print("Found mismatches in slope ordering:", ordered_slopes, mismatches, "Initializing reset with exp " + str(cur_exp))
+                print(cur_exp in stable_anchors)
+                print(cur_exp in eval_counter)
+            while cur_exp in stable_anchors or (cur_exp in eval_counter and eval_counter[cur_exp] >= MAX_EVALUATIONS):
+                if verbose:
+                    print("Exp " + str(cur_exp) + " is stable or is in the eval_counter with a high enough value.")
+                cur_exp += 1
+            if cur_exp < act_exp:
+                if verbose:
+                    print("Going back from exp " + str(act_exp) + " to " + str(cur_exp) + ". Stable anchors are " + str(stable_anchors) + ". Eval counter is: " + str(eval_counter) + ". MAX_EVALUATIONS is: " + str(MAX_EVALUATIONS))
+            elif cur_exp > max_exp:
+                cur_exp = max_exp
+                if verbose:
+                    print("Stepping to maximum exponent " + str(cur_exp))
+            else:
+                if verbose:
+                    print("Stepping to exponent " + str(cur_exp))
+        else:
+            cur_exp += 1
+            if cur_exp > max_exp:
+                cur_exp = max_exp
+    
+    toc = time.time()
+    
+    estimates = elm.get_normal_estimates()
+    if verbose:
+        print("Learning Curve Construction Completed. Conditions:\n\tReachable: " + str(reachable) + "\n\tTimeout: " + str(timeouted))
+        print("Estimate History:", estimate_history)
+        print("LC:", estimates)
+        print("Runtime:", toc-tic, "Expected runtime on", target,":",elm.predict_runtime(target))
+    if len(estimates) == 0:
+        return np.nan, np.nan, [], elm
+    elif len(estimates) < 3:
+        max_anchor = max([int(k) for k in estimates])
+        return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm
+    else:
+        max_anchor = max([int(k) for k in estimates])
+        target_performance = estimates[max_anchor]["mean"] if cur_exp == max_exp or not return_estimate_on_incomplete_runs else elm.get_ipl_estimate_at_target(target)
+        if verbose:
+            print("Target performance:", target_performance)
+        return target_performance, estimates[max_anchor]["mean"], estimates, elm

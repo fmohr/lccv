@@ -36,7 +36,8 @@ learners = [
     (sklearn.ensemble.GradientBoostingClassifier, {})
 ]
 
-def evaluate(learner, X, y, num_examples, seed=0):
+def evaluate(learner_inst, X, y, num_examples, seed=0, timeout = None, verbose=False):
+    deadline = None if timeout is None else time.time() + timeout
     random.seed(seed)
     n = X.shape[0]
     indices_train = random.sample(range(n), num_examples)
@@ -49,12 +50,19 @@ def evaluate(learner, X, y, num_examples, seed=0):
     X_test = X[mask_test][:10000]
     y_test = y[mask_test][:10000]
 
-    inst = learner()
-    #print("Training " + str(learner) + " on data of shape " + str(X_train.shape))
-    inst.fit(X_train, y_train)
-    #print("Training ready. Obtaining predictions for " + str(X_test.shape[0]) + " instances.")
-    y_hat = inst.predict(X_test)
-    return 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+    if verbose:
+        print("Training " + str(learner_inst) + " on data of shape " + str(X_train.shape) + " using seed " + str(seed))
+    if deadline is None:
+        learner_inst.fit(X_train, y_train)
+    else:
+        func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
+            
+    
+    y_hat = learner_inst.predict(X_test)
+    error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+    if verbose:
+        print("Training ready. Obtaining predictions for " + str(X_test.shape[0]) + " instances. Error rate of model on " + str(len(y_hat)) + " instances is " + str(error_rate))
+    return error_rate
 
 '''
     Reads in a dataset from openml.org via the ID, returning a matrix X and a label vector y.
@@ -89,27 +97,33 @@ def get_dataset(openmlid):
 '''
    Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
 '''
-def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=60, seed=0):
+def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0):
 
     train_size = 0.9
     repeats = 10
-    deadline = time.time() + timeout
+    if not timeout is None:
+        deadline = time.time() + timeout
     
     scores = []
     n = X.shape[0]
     num_examples = int(train_size * n)
     
     for r in range(repeats):
-        try:
-            if deadline <= time.time():
+        print("Seed in MCCV:",seed)
+        if timeout is None:
+            scores.append(evaluate(learner, X, y, num_examples, seed))
+        else:
+            try:
+                if deadline <= time.time():
+                    break
+                scores.append(func_timeout(deadline - time.time(), evaluate, (learner, X, y, num_examples, seed)))
+            except FunctionTimedOut:
                 break
-            scores.append(func_timeout(deadline - time.time(), evaluate, (learner, X, y, num_examples, seed+1)))
-        except FunctionTimedOut:
-            break
-            
-        except KeyboardInterrupt:
-            break
-    
+
+            except KeyboardInterrupt:
+                break
+        seed += 1
+
     return np.mean(scores) if len(scores) > 0 else np.nan, scores
 
 def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, exception_on_failure=False):
@@ -125,9 +139,10 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
         print("Checking learner " + str(learner))
         try:
             validation_start = time.time()
-            score = validation_result_extractor(validation_func(learner, X, y, r = r, timeout=timeout_per_evaluation))
-            validation_times.append(time.time() - validation_start)
-            print("Observed score " + str(score) + " for " + str(learner))
+            score = validation_result_extractor(validation_func(learner(), X, y, r = r, timeout=timeout_per_evaluation))
+            runtime = time.time() - validation_start
+            validation_times.append(runtime)
+            print("Observed score " + str(score) + " for " + str(learner) + ". Validation took " + str(int(np.round(runtime * 1000))) + "ms")
             r = min(r, score + epsilon)
             print("r is now:", r)
             if score < best_score:
@@ -141,11 +156,18 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
                 raise
             else:
                 print("COULD NOT TRAIN " + str(learner) + " on dataset of shape " + str(X.shape) + ". Aborting.")
-                
     return chosen_learner, validation_times
 
-def evaluate_validator(validation, learners, X, y, timeout_per_evaluation, epsilon):
-    chosen_learner = select_model(validation, learners, X, y, timeout_per_evaluation, epsilon)
-    print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
-    true_performance = cv10(chosen_learner, X, y, timeout=60*60*24, seed=0)
-    return true_performance
+def evaluate_validators(validadors, learners, X, y, timeout_per_evaluation, epsilon):
+    out = {}
+    performances = {}
+    for validator in validators:
+        print("-------------------------------\n" + validator.__name__ + "\n-------------------------------")
+        time_start = time.time()
+        chosen_learner = select_model(validation, learners, X, y, timeout_per_evaluation, epsilon)[0]
+        runtime = int(np.round(time.time() - time_start))
+        print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
+        if not chosen_learner.__name__ in performances:
+            performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats = 100, seed=4711)
+        performances[validator.__name__] = performances[chosen_learner.__name__]
+    return performances
