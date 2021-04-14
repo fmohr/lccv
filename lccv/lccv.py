@@ -80,7 +80,7 @@ class EmpiricalLearningModel:
         tic = time.time()
         if seed is None:
             seed = int(tic)
-        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000)
+        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000 if timeout is not None else None)
         toc = time.time()
         self.df.loc[len(self.df)] = [size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
@@ -208,26 +208,20 @@ class EmpiricalLearningModel:
         ax.fill_between(sizes, lower, upper, alpha=0.2)
     
 
-def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=10, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, return_estimate_on_incomplete_runs=False, verbose=False):
+def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, seed = 0, verbose=False):
     
     # intialize
     tic = time.time()
-    deadline = tic + timeout
+    deadline = tic + timeout if timeout is not None else None
     elm = EmpiricalLearningModel(learner_inst, X, y)
     
     # configure the exponents and status variables
-    MAX_EVALUATIONS = 10
-    base = 2
     target = int(np.floor(X.shape[0] * 0.9))
-    min_exp = 6
-    max_exp = np.log(target) / np.log(base)
-    seed = 0
+    max_exp = np.log(target) / np.log(base)    
     reachable = True
     estimate_history = []
     stable_anchors = []
     hold_out_mode = False
-    max_conf_interval_size_default = 0.1
-    max_conf_interval_size_target = 0.01
     
     if verbose:
         print("Running LCCV on " + str(X.shape) + "-shaped data for learner " + str(learner_inst) + " with r = " + str(r) + ". Overview:\n\tmin_exp: " + str(min_exp) + "\n\tmax_exp: " + str(max_exp))
@@ -273,7 +267,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=10, MAX_ESTIMATE_MARGI
                     print("Adding point at size " + str(size))
                 try:
                     seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
-                    elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000)
+                    elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000 if deadline is not None else None)
                 except FunctionTimedOut:
                     timeouted = True
                     if verbose:
@@ -321,15 +315,21 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=10, MAX_ESTIMATE_MARGI
                         if verbose:
                             print("Reached r-score up to a precision of " + str(MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION) + "!")
                             print("Stopping LC construction and setting exponent to maximum " + str(max_exp) + ".")
-                        remaining_time = deadline - time.time()
-                        max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
-                        feasible_target = min(target, max_size_in_timeout)
+                        if deadline is None:
+                            feasible_target = target
+                            if verbose:
+                                print("Setting exponent to maximum (no timeout given)")
+                        else:
+                            remaining_time = deadline - time.time()
+                            max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
+                            feasible_target = min(target, max_size_in_timeout)
+                            if verbose:
+                                print("Setting exponent to maximally possible in remaining time " + str(remaining_time) + "s according to current belief.")
+                                print("Max size in timeout:",max_size_in_timeout)
+                                print("Expected runtime at that size:", elm.predict_runtime(max_size_in_timeout))
                         cur_exp = np.log(feasible_target) / np.log(base)
                         hold_out_mode = False
                         if verbose:
-                            print("Setting exponent to maximally possible in remaining time " + str(remaining_time) + "s according to current belief.")
-                            print("Max size in timeout:",max_size_in_timeout)
-                            print("Expected runtime at that size:", elm.predict_runtime(max_size_in_timeout))
                             print("Feasible target:",feasible_target)
                             print("Setting exponent to", cur_exp)
                         continue

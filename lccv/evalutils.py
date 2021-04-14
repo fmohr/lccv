@@ -158,7 +158,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
                 print("COULD NOT TRAIN " + str(learner) + " on dataset of shape " + str(X.shape) + ". Aborting.")
     return chosen_learner, validation_times
 
-def evaluate_validators(validadors, learners, X, y, timeout_per_evaluation, epsilon):
+def evaluate_validators(validadors, learners, X, y, timeout_per_evaluation, epsilon, repeats = 10):
     out = {}
     performances = {}
     for validator in validators:
@@ -168,6 +168,6 @@ def evaluate_validators(validadors, learners, X, y, timeout_per_evaluation, epsi
         runtime = int(np.round(time.time() - time_start))
         print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
         if not chosen_learner.__name__ in performances:
-            performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats = 100, seed=4711)
+            performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats = repeats, seed=4711)
         performances[validator.__name__] = performances[chosen_learner.__name__]
     return performances
