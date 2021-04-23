@@ -3,10 +3,10 @@ import pandas as pd
 import scipy.stats
 import time
 import random
-from tqdm.notebook import tqdm
 import sklearn.metrics
 from evalutils import evaluate
 from func_timeout import func_timeout, FunctionTimedOut
+import matplotlib.pyplot as plt
 
 def getSlopes(anchor_points, observations):
     slopes = []
@@ -146,8 +146,12 @@ class EmpiricalLearningModel:
         normal_estimates = self.get_normal_estimates()[last_size]
         if normal_estimates["n"] > 1:
             last_conf = normal_estimates["conf"]
-            last_conf_lower = last_conf[0]
-            last_conf_upper = last_conf[1]
+            if normal_estimates["std"] > 0:
+                last_conf_lower = last_conf[0]
+                last_conf_upper = last_conf[1]
+            else:
+                last_conf_lower = last_conf_upper = normal_estimates["mean"]
+                last_conf = (last_conf_lower, last_conf_upper)
         else:
             last_conf_lower = last_conf_upper = normal_estimates["mean"]
             last_conf = (last_conf_lower, last_conf_upper)
@@ -208,7 +212,11 @@ class EmpiricalLearningModel:
         ax.fill_between(sizes, lower, upper, alpha=0.2)
     
 
-def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, seed = 0, verbose=False):
+def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, target = None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, seed = 0, enforce_all_anchor_evaluations=False, verbose=False):
+    
+    if enforce_all_anchor_evaluations and verbose:
+        print("All anchor evaluations enforced, setting r to 1.0")
+        r = 1.0
     
     # intialize
     tic = time.time()
@@ -216,7 +224,8 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
     elm = EmpiricalLearningModel(learner_inst, X, y)
     
     # configure the exponents and status variables
-    target = int(np.floor(X.shape[0] * 0.9))
+    if target is None:
+        target = int(np.floor(X.shape[0] * 0.9))
     max_exp = np.log(target) / np.log(base)    
     reachable = True
     estimate_history = []
@@ -230,7 +239,10 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
     cur_exp = min_exp
     eval_counter = {}
     timeouted = False
-    while reachable and cur_exp <= max_exp and not timeouted:
+    while reachable and cur_exp <= max_exp and not timeouted and (not max_exp in eval_counter or eval_counter[max_exp] < MAX_EVALUATIONS):
+        
+        if verbose:
+            print("Next iteration in validation process. cur_exp = " + str(cur_exp) + "/" + str(max_exp) +  " (max_exp). Stable anchors: " + str(stable_anchors))
     
         if cur_exp == max_exp:
             if verbose:
@@ -241,7 +253,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
         stable = cur_exp in stable_anchors
         size = int(np.round(base ** cur_exp))
         
-        if hold_out_mode:
+        if hold_out_mode and not enforce_all_anchor_evaluations:
             if verbose:
                 print("Adding hold-out point at size " + str(size))
             try:
@@ -254,7 +266,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                 break
         
         else:
-            while reachable and not stable:
+            while reachable and (not stable or (enforce_all_anchor_evaluations and eval_counter[cur_exp] < MAX_EVALUATIONS)):
                 if not cur_exp in eval_counter:
                     eval_counter[cur_exp] = 0
                 if eval_counter[cur_exp] >= MAX_EVALUATIONS:
@@ -268,6 +280,8 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                 try:
                     seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
                     elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000 if deadline is not None else None)
+                    if verbose:
+                        print("Sample computed successfully.")
                 except FunctionTimedOut:
                     timeouted = True
                     if verbose:
@@ -306,7 +320,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
             
             if cur_exp < max_exp and len(elm.get_values_at_anchor(size)) >= 1:
                 almost_reached = np.mean(elm.get_values_at_anchor(size)) <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION
-                if almost_reached:
+                if almost_reached and not enforce_all_anchor_evaluations:
                     if cur_exp == max_exp and stable:
                         if verbose:
                             print("Stopping LCCV construction since last stage is stable.")
@@ -335,7 +349,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                         continue
             
         # check whether the goal is still reachable
-        if cur_exp > min_exp:
+        if cur_exp > min_exp and not enforce_all_anchor_evaluations:
             
             if cur_exp == max_exp and stable:
                 if verbose:
@@ -367,7 +381,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                 last_conf_lower = last_conf[0]
                 last_conf_upper = last_conf[1]
                 if np.isnan(last_conf_lower):
-                    last_conf_lower = last_conf_upper = normal_estimates["mean"]
+                    last_conf_lower = last_conf_upper = normal_estimates_last["mean"]
                     last_conf = (last_conf_lower, last_conf_upper)
                 if verbose:
                     print("Last size:", last_size)
@@ -410,7 +424,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
         slope_ranges = elm.get_slope_ranges()
         ordered_slopes = np.array(np.argsort([s[1] for s in slope_ranges]))
         mismatches = np.where(ordered_slopes != np.array(range(len(ordered_slopes))))[0]
-        if len(mismatches) > 0:
+        if len(mismatches) > 0 and not enforce_all_anchor_evaluations:
             act_exp = cur_exp
             cur_exp = min_exp + min(mismatches)
             if verbose:
@@ -437,6 +451,8 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                 cur_exp = max_exp
     
     toc = time.time()
+    if verbose:
+        print("Estimation process finished, preparing result.")
     
     estimates = elm.get_normal_estimates()
     if verbose:

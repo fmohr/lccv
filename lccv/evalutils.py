@@ -10,8 +10,6 @@ import random
 import itertools as it
 from scipy.sparse import lil_matrix
 
-from tqdm.notebook import tqdm
-
 import sklearn
 from sklearn import metrics
 from sklearn import *
@@ -97,10 +95,9 @@ def get_dataset(openmlid):
 '''
    Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
 '''
-def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0):
+def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0, repeats = 10):
 
     train_size = 0.9
-    repeats = 10
     if not timeout is None:
         deadline = time.time() + timeout
     
@@ -135,7 +132,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
     best_score = 1
     chosen_learner = None
     validation_times = []
-    for learner in tqdm(learners):
+    for learner in learners:
         print("Checking learner " + str(learner))
         try:
             validation_start = time.time()
@@ -158,16 +155,20 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
                 print("COULD NOT TRAIN " + str(learner) + " on dataset of shape " + str(X.shape) + ". Aborting.")
     return chosen_learner, validation_times
 
-def evaluate_validators(validadors, learners, X, y, timeout_per_evaluation, epsilon, repeats = 10):
+def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, repeats=10):
     out = {}
     performances = {}
-    for validator in validators:
+    for validator, result_parser in validators:
+        
         print("-------------------------------\n" + validator.__name__ + "\n-------------------------------")
         time_start = time.time()
-        chosen_learner = select_model(validation, learners, X, y, timeout_per_evaluation, epsilon)[0]
+        chosen_learner = select_model((validator, result_parser), learners, X, y, timeout_per_evaluation, epsilon)[0]
         runtime = int(np.round(time.time() - time_start))
         print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
-        if not chosen_learner.__name__ in performances:
-            performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats = repeats, seed=4711)
-        performances[validator.__name__] = performances[chosen_learner.__name__]
-    return performances
+        if chosen_learner is None:
+            out[validator.__name__] = ("n/a", runtime, np.nan)
+        else:
+            if not chosen_learner.__name__ in performances:
+                performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats=repeats, seed=4711)
+            out[validator.__name__] = (chosen_learner.__name__, runtime, performances[chosen_learner.__name__])
+    return out
