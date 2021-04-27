@@ -4,6 +4,16 @@ import logging
 import numpy as np
 import os
 
+import sklearn.discriminant_analysis
+import sklearn.ensemble
+import sklearn.feature_selection
+import sklearn.impute
+import sklearn.linear_model
+import sklearn.naive_bayes
+import sklearn.neighbors
+import sklearn.neural_network
+import sklearn.preprocessing
+import sklearn.svm
 import sklearn.tree
 
 import lccv
@@ -23,23 +33,23 @@ def parse_args():
 
 
 learners = [
-    sklearn.svm.LinearSVC,
-    sklearn.tree.DecisionTreeClassifier,
-    sklearn.tree.ExtraTreeClassifier,
-    sklearn.linear_model.LogisticRegression,
-    sklearn.linear_model.PassiveAggressiveClassifier,
-    sklearn.linear_model.Perceptron,
-    sklearn.linear_model.RidgeClassifier,
-    sklearn.linear_model.SGDClassifier,
-    sklearn.neural_network.MLPClassifier,
-    sklearn.discriminant_analysis.LinearDiscriminantAnalysis,
-    sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis,
-    sklearn.naive_bayes.BernoulliNB,
-    sklearn.naive_bayes.MultinomialNB,
-    sklearn.neighbors.KNeighborsClassifier,
-    sklearn.ensemble.ExtraTreesClassifier,
-    sklearn.ensemble.RandomForestClassifier,
-    sklearn.ensemble.GradientBoostingClassifier,
+    sklearn.svm.LinearSVC(),
+    sklearn.tree.DecisionTreeClassifier(),
+    sklearn.tree.ExtraTreeClassifier(),
+    sklearn.linear_model.LogisticRegression(),
+    sklearn.linear_model.PassiveAggressiveClassifier(),
+    sklearn.linear_model.Perceptron(),
+    sklearn.linear_model.RidgeClassifier(),
+    sklearn.linear_model.SGDClassifier(),
+    sklearn.neural_network.MLPClassifier(),
+    sklearn.discriminant_analysis.LinearDiscriminantAnalysis(),
+    sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis(),
+    sklearn.naive_bayes.BernoulliNB(),
+    sklearn.naive_bayes.MultinomialNB(),
+    sklearn.neighbors.KNeighborsClassifier(),
+    sklearn.ensemble.ExtraTreesClassifier(),
+    sklearn.ensemble.RandomForestClassifier(),
+    sklearn.ensemble.GradientBoostingClassifier(),
 ]
 
 
@@ -50,7 +60,7 @@ def highest_2power_below(n) -> int:
 
 def clf_as_pipeline(clf, numeric_indices, nominal_indices):
         numeric_transformer = sklearn.pipeline.make_pipeline(
-            sklearn.preprocessing.SimpleImputer(),
+            sklearn.impute.SimpleImputer(),
             sklearn.preprocessing.StandardScaler())
 
         # note that the dataset is encoded numerically, hence we can only impute
@@ -88,7 +98,7 @@ def run_classifier_on_task(
 
     output_dir = os.path.join(output_directory, str(task.task_id))
     os.makedirs(output_dir, exist_ok=True)
-    filename = 'result_%s.json' % str(clf)
+    filename = 'result_%s.json' % str(learners[learner_idx])  # do not use full pipeline name
     if os.path.isfile(os.path.join(output_dir, filename)):
         logging.info('clf %s on dataset %s already exists' % (str(clf), task.get_dataset().name))
         return
@@ -149,7 +159,7 @@ def run(args):
                         raise ValueError('Can run on Supervised Classif. tasks')
                     run_classifier_on_task(learner_idx, task, args.output_directory, args.verbose)
                 except Exception as e:
-                    logging.warning('An exception')
+                    logging.warning('An exception: %s' % str(e))
                     print(e)
 
 
