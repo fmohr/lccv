@@ -76,11 +76,11 @@ class EmpiricalLearningModel:
         self.y = y
         self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate", "runtime"])
     
-    def compute_and_add_sample(self, size, seed = None, timeout = None):
+    def compute_and_add_sample(self, size, seed = None, timeout = None, verbose = False):
         tic = time.time()
         if seed is None:
             seed = int(tic)
-        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000 if timeout is not None else None)
+        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000 if timeout is not None else None, verbose=verbose)
         toc = time.time()
         self.df.loc[len(self.df)] = [size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
@@ -101,7 +101,7 @@ class EmpiricalLearningModel:
             sizes = sorted(np.unique(self.df["trainsize"]))
             out = {}
             for size in sizes:
-                out[size] = self.get_normal_estimates(size)
+                out[int(size)] = self.get_normal_estimates(size)
             return out
     
         dfProbesAtSize = self.df[self.df["trainsize"] == size]
@@ -212,10 +212,11 @@ class EmpiricalLearningModel:
         ax.fill_between(sizes, lower, upper, alpha=0.2)
     
 
-def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, target = None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, seed = 0, enforce_all_anchor_evaluations=False, verbose=False):
+def lccv(learner_inst, X, y, r = 1.0, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, target = None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, enforce_all_anchor_evaluations=False, verbose=False):
     
-    if enforce_all_anchor_evaluations and verbose:
-        print("All anchor evaluations enforced, setting r to 1.0")
+    if enforce_all_anchor_evaluations:
+        if verbose:
+            print("All anchor evaluations enforced, setting r to 1.0")
         r = 1.0
     
     # intialize
@@ -258,7 +259,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                 print("Adding hold-out point at size " + str(size))
             try:
                 seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
-                elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000)
+                elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000, verbose=verbose)
             except FunctionTimedOut:
                 timeouted = True
                 if verbose:
@@ -279,7 +280,7 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
                     print("Adding point at size " + str(size))
                 try:
                     seed = eval_counter[cur_exp] if cur_exp in eval_counter else 0
-                    elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000 if deadline is not None else None)
+                    elm.compute_and_add_sample(size, seed, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
                     if verbose:
                         print("Sample computed successfully.")
                 except FunctionTimedOut:
