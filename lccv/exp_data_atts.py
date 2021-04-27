@@ -25,7 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_directory', type=str, help='directory to store output',
                         default=os.path.expanduser('~') + '/experiments/lccv/')
-    parser.add_argument('--job_idx', type=int, default=1)
+    parser.add_argument('--job_idx', type=int, default=None)
     parser.add_argument('--verbose', type=bool, default=False)
     parser.add_argument('--study_id', type=str, default=271)
 
@@ -89,18 +89,24 @@ def run_classifier_on_task(
     numeric_indices = task.get_dataset().get_features_by_type('numeric', [task.target_name])
     clf = clf_as_pipeline(learners[learner_idx], numeric_indices, nominal_indices)
     x, y = task.get_X_and_y(dataset_format='array')
+    unique, counts = np.unique(y, return_counts=True)
+    logging.info('class dist (all): %s' % dict(zip(unique, counts)))
     size_big = highest_2power_below(len(x))
 
     indices_big = np.random.permutation(np.arange(len(x)))[:size_big]
     indices_small = indices_big[:int(size_big/2)]
     x_big, y_big = x[indices_big], y[indices_big]
+    unique_big, counts_big = np.unique(y_big, return_counts=True)
+    logging.info('class dist (big): %s' % dict(zip(unique_big, counts_big)))
     x_small, y_small = x[indices_small], y[indices_small]
+    unique_small, counts_small = np.unique(y_small, return_counts=True)
+    logging.info('class dist (small): %s' % dict(zip(unique_small, counts_small)))
 
     output_dir = os.path.join(output_directory, str(task.task_id))
     os.makedirs(output_dir, exist_ok=True)
     filename = 'result_%s.json' % str(learners[learner_idx])  # do not use full pipeline name
     if os.path.isfile(os.path.join(output_dir, filename)):
-        logging.info('clf %s on dataset %s already exists' % (str(clf), task.get_dataset().name))
+        logging.info('clf %s on dataset %s already exists' % (str(learners[learner_idx]), task.get_dataset().name))
         return
 
     logging.info('dataset: %s, shape: %s > %s > %s' % (task.get_dataset().name,
@@ -136,6 +142,7 @@ def run_classifier_on_task(
     }
     with open(os.path.join(output_dir, filename), 'w') as fp:
         json.dump(all_results, fp)
+    logging.info('Results written to file: %s' % os.path.join(output_dir, filename))
 
 
 def run(args):
