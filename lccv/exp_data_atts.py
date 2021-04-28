@@ -18,7 +18,7 @@ import sklearn.tree
 
 import lccv
 
-import openml.study
+import openml
 
 
 def parse_args():
