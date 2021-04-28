@@ -241,6 +241,16 @@ def lccv(learner_inst, X, y, r = 1.0, eps = 0.05, timeout=None, base = 2, min_ex
     timeouted = False
     while reachable and cur_exp <= max_exp and not timeouted and (not max_exp in eval_counter or eval_counter[max_exp] < MAX_EVALUATIONS):
         
+        target_estimates = elm.get_normal_estimates(target)
+        if np.isnan(target_estimates["conf"][0]) and target_estimates["std"] == 0 and target_estimates["n"] > 2:
+            if verbose:
+                print("convered, stopping")
+            break
+        if target_estimates["conf"][1] - target_estimates["conf"][0] < max_conf_interval_size_target:
+            if verbose:
+                print("convered, stopping")
+            break
+        
         if verbose:
             print("Next iteration in validation process. cur_exp = " + str(cur_exp) + "/" + str(max_exp) +  " (max_exp). Stable anchors: " + str(stable_anchors))
     

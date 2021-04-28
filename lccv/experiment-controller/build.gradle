@@ -31,10 +31,10 @@ task sourcesJar(type: Jar, dependsOn: classes) {
 
 task evalcli(type: Jar) {
     manifest {
-		attributes 'Main-Class': 'naiveautoml.experiments.NaiveAutoMLExperimentRunner'
+		attributes 'Main-Class': 'lccv.ExperimentRunner'
     }
     zip64 = true
-    baseName = 'naiveautoml-evalcli'
+    baseName = 'lccv-evalcli'
     from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
     with jar
@@ -73,30 +73,8 @@ dependencies {
 		exclude group: 'log4j'
 		exclude group: 'org.slf4j'
 	}
-	// dependencies for development time
-	//compile "ai.libs:jaicore-experiments"
- 	//compile "ai.libs:jaicore-basic"
- 	//compile "ai.libs:jaicore-search"
- 	//compile "ai.libs:jaicore-ea"
- 	//compile "ai.libs:jaicore-ml"
- 	//compile "ai.libs:jaicore-ml-weka"
- 	//compile "ai.libs:mlplan-weka"
- 	
- 	//compile "ai.libs:hasco-core"
- 	
- 	//compile ('ai.libs.thirdparty:interruptible-weka:0.1.6') {
-	//	exclude group: 'log4j'
-	//	exclude group: 'org.slf4j'
-	//    exclude module: 'weka-dev'
-	//}
-	//compile 'org.openml:apiconnector:1.0.23'
 	
 	compile 'org.slf4j:slf4j-log4j12:1.7.25', 'log4j:log4j:1.2.17'
-	
-	compile (name: 'autoweka') {
-		exclude group: 'log4j'
-		exclude group: 'org.slf4j'
-	}
 }
 
 repositories {
@@ -107,7 +85,4 @@ repositories {
         url "http://clojars.org/repo/"
         url "https://nexus.cs.upb.de/repository/maven-releases/"
     }
-    flatDir {
-       dirs 'autoweka-2.6'
-   }
 }

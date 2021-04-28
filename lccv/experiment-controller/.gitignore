@@ -1,0 +1,8 @@
+.project
+.classpath
+.gradle/
+build
+logs
+.settings
+python/singularity/tmp
+python/singularity/test.simg
