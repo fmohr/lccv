@@ -96,7 +96,8 @@ def get_dataset(openmlid):
    Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
 '''
 def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0, repeats = 10):
-
+    
+    print("Running mccv with seed " + str(seed))
     train_size = 0.9
     if not timeout is None:
         deadline = time.time() + timeout
@@ -105,6 +106,7 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
     n = X.shape[0]
     num_examples = int(train_size * n)
     
+    seed *= 13
     for r in range(repeats):
         print("Seed in MCCV:",seed)
         if timeout is None:
@@ -123,7 +125,7 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
 
     return np.mean(scores) if len(scores) > 0 else np.nan, scores
 
-def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, exception_on_failure=False):
+def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
     validation_func = validation[0]
     validation_result_extractor = validation[1]
     
@@ -136,7 +138,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
         print("Checking learner " + str(learner))
         try:
             validation_start = time.time()
-            score = validation_result_extractor(validation_func(learner(), X, y, r = r, timeout=timeout_per_evaluation))
+            score = validation_result_extractor(validation_func(learner(), X, y, r = r, timeout=timeout_per_evaluation, seed=seed))
             runtime = time.time() - validation_start
             validation_times.append(runtime)
             print("Observed score " + str(score) + " for " + str(learner) + ". Validation took " + str(int(np.round(runtime * 1000))) + "ms")
@@ -155,14 +157,14 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, ex
                 print("COULD NOT TRAIN " + str(learner) + " on dataset of shape " + str(X.shape) + ". Aborting.")
     return chosen_learner, validation_times
 
-def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, repeats=10):
+def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, seed=0, repeats=10):
     out = {}
     performances = {}
     for validator, result_parser in validators:
         
-        print("-------------------------------\n" + validator.__name__ + "\n-------------------------------")
+        print("-------------------------------\n" + validator.__name__ + " (with seed " + str(seed) + ")\n-------------------------------")
         time_start = time.time()
-        chosen_learner = select_model((validator, result_parser), learners, X, y, timeout_per_evaluation, epsilon)[0]
+        chosen_learner = select_model((validator, result_parser), learners, X, y, timeout_per_evaluation, epsilon, seed=seed)[0]
         runtime = int(np.round(time.time() - time_start))
         print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
         if chosen_learner is None:

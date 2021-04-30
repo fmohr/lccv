@@ -64,7 +64,7 @@ if __name__ == '__main__':
             validators = validators = [(lccv, lambda r: r[0])]
             key = "lccv"
     
-    result = evaluate_validators(validators, test_learners, X, y, timeout, repeats=100, epsilon=epsilon)[key]
+    result = evaluate_validators(validators, test_learners, X, y, timeout, seed=seed, repeats=100, epsilon=epsilon)[key]
     model = result[0]
     runtime = result[1]
     error_rate = np.round(result[2][0], 4)
