@@ -40,6 +40,17 @@ task evalcli(type: Jar) {
     with jar
 }
 
+task lccollector(type: Jar) {
+    manifest {
+		attributes 'Main-Class': 'lccollection.ExperimentRunner'
+    }
+    zip64 = true
+    baseName = 'lccollector'
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+    with jar
+}
+
 artifacts {
     archives sourcesJar
 }
