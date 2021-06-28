@@ -53,9 +53,9 @@ def run(output_dir):
     ]
 
     curves_concave = [
-        [12.0, 11.0, 9.0, 8.0],
-        [10.0, 8.0, 7.0, 5.0],
-        [15.0, 12.0, 12.0, 10.0],
+        [13.0, 12.0, 8.0, 7.0],
+        [10.5, 8.5, 7.5, 4.5],
+        [14.0, 11.0, 11.0, 10.0],
     ]
 
     for i in range(2):
@@ -78,6 +78,7 @@ def run(output_dir):
     plt.tight_layout()
     filename = os.path.join(output_dir, 'prune_0.pdf')
     plt.savefig(filename)
+
     axes.plot(all_sizes[1:],
               np.array([12.0, 10.0, 6.00]),
               '--', color='g')
