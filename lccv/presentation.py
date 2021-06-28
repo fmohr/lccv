@@ -12,10 +12,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def plot_series(axes, output_dir, prefix, curves, colors):
-    all_sizes = np.array([64, 128, 256, 1024])
-    stdevs = np.array([0.5, 0.25, 0.1, 0.05])
-
+def plot_series(axes, output_dir, prefix, curves, all_sizes, stdevs, colors):
     for curve_idx, current_curve in enumerate(curves):
         for size_idx in range(len(all_sizes)-1):
             current_len = size_idx+2
@@ -34,10 +31,20 @@ def plot_series(axes, output_dir, prefix, curves, colors):
             plt.savefig(filename)
 
 
+def setup_axes(axes, xticks):
+    axes.set_xticks(xticks)
+    axes.set_xlabel("Training examples")
+    axes.set_ylabel("Error rate")
+    axes.set_xlim([64, 550])
+    axes.set_ylim([4, 16])
+
+
 def run(output_dir):
     plt.rc('text', usetex=True)
     plt.rc('font', family='serif', size=36)
-    fig, axes = plt.subplots(1, 2, figsize=(16, 9))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    all_sizes = np.array([64, 128, 256, 512])
+    stdevs = np.array([0.5, 0.25, 0.1, 0.05])
 
     curves_convex = [
         [10.0, 8.0, 7.0, 6.5],
@@ -52,16 +59,31 @@ def run(output_dir):
     ]
 
     for i in range(2):
-        axes[i].set_xlabel("Training examples")
-        axes[i].set_ylabel("Error rate")
-        axes[i].set_xlim([64, 1100])
-        axes[i].set_ylim([4, 16])
-        axes[i].set_xscale('log')
+        setup_axes(axes[i], all_sizes)
 
     axes[0].set_title("Convex learning curves")
-    plot_series(axes[0], output_dir, 'convex', curves_convex, ['b', 'g', 'r'])
+    plot_series(axes[0], output_dir, 'convex', curves_convex, all_sizes, stdevs, ['b', 'g', 'r'])
     axes[1].set_title("Concave learning curves")
-    plot_series(axes[1], output_dir, 'concave', curves_concave, ['c', 'm', 'y'])
+    plot_series(axes[1], output_dir, 'concave', curves_concave, all_sizes, stdevs, ['c', 'm', 'y'])
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, 1, figsize=(16, 7))
+    setup_axes(axes, all_sizes)
+    axes.plot(all_sizes,
+              [11.0, 8.0, 6.0, 5.0],
+              'o-', color='b')
+    axes.plot(all_sizes[:2],
+              np.array([13.0, 12.0]),
+              'o-', color='g')
+    plt.tight_layout()
+    filename = os.path.join(output_dir, 'prune_0.pdf')
+    plt.savefig(filename)
+    axes.plot(all_sizes[1:],
+              np.array([12.0, 10.0, 6.00]),
+              '--', color='g')
+    plt.tight_layout()
+    filename = os.path.join(output_dir, 'prune_1.pdf')
+    plt.savefig(filename)
 
 
 if __name__ == '__main__':
