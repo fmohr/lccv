@@ -1,6 +1,7 @@
 import sys
 from evalutils import *
 from lccv import lccv
+from commons import *
 
 if __name__ == '__main__':
     
@@ -12,6 +13,13 @@ if __name__ == '__main__':
     algorithm = sys.argv[2]
     seed = int(sys.argv[3])
     timeout = int(sys.argv[4])
+    num_pipelines = 10
+    print("Running experiment under folloiwing conditions:")
+    print("\tOpenML id:", openmlid)
+    print("\tAlgorithm:", algorithm)
+    print("\tSeed:", seed)
+    print("\ttimeout (per single evaluation):", timeout)
+    print("\tNum Pipelines:", num_pipelines)
 	
     
     # load data
@@ -23,31 +31,8 @@ if __name__ == '__main__':
         return lccv(learner_inst, X, y, r = 1.0, eps = 0, timeout=timeout, base = 2, min_exp = np.log(int(np.floor(X.shape[0] * 0.9))) / np.log(2), MAX_EVALUATIONS = 10, seed=seed, enforce_all_anchor_evaluations=False, verbose=True)
     
     # creating learner sequence
-    learners = [
-        (sklearn.svm.LinearSVC, {}),
-        (sklearn.tree.DecisionTreeClassifier, {}),
-        (sklearn.tree.ExtraTreeClassifier, {}),
-        (sklearn.linear_model.LogisticRegression, {}),
-        (sklearn.linear_model.PassiveAggressiveClassifier, {}),
-        (sklearn.linear_model.Perceptron, {}),
-        (sklearn.linear_model.RidgeClassifier, {}),
-        (sklearn.linear_model.SGDClassifier, {}),
-        (sklearn.neural_network.MLPClassifier, {}),
-        (sklearn.discriminant_analysis.LinearDiscriminantAnalysis, {}),
-        (sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis, {}),
-        (sklearn.naive_bayes.BernoulliNB, {}),
-        (sklearn.naive_bayes.MultinomialNB, {}),
-        (sklearn.neighbors.KNeighborsClassifier, {}),
-        (sklearn.ensemble.ExtraTreesClassifier, {}),
-        (sklearn.ensemble.RandomForestClassifier, {}),
-        (sklearn.ensemble.GradientBoostingClassifier, {})
-    ]
-    test_learners = [l[0] for l in learners]
-    for _ in range(6):
-        test_learners.extend(test_learners)
-    random.seed(seed)
-    test_learners = random.sample(test_learners, len(test_learners))
-    test_learners = test_learners[:1000]
+    sampler = PipelineSampler("searchspace.json", X, y, dp_proba = .5, fp_proba = .5)
+    test_learners = [sampler.sample() for i in range(num_pipelines)]
     print("Evaluating portfolio of " + str(len(test_learners)) + " learners.")
     
     # run lccv
@@ -77,3 +62,4 @@ if __name__ == '__main__':
     f = open(folder + "/results.txt", "w")
     f.write(str(model) + " " + str(error_rate) + " " + str(runtime))
     f.close()
+    print("Experiment ready. Results written to", folder + "/results.txt")

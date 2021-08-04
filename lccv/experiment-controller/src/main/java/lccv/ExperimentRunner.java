@@ -66,9 +66,10 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 		File file = new File("runexperiment.py");
 		String singularityImage = "test.simg";
-		logger.info("Executing {} in singularity.", new File(workingDirectory + File.separator + file));
+		List<String> cmdList = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " " + folder.getAbsolutePath());
+		logger.info("Executing {}", cmdList);
 
-		ProcessBuilder pb = new ProcessBuilder(Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " " + folder.getAbsolutePath()));
+		ProcessBuilder pb = new ProcessBuilder(cmdList);
 		pb.directory(workingDirectory);
 		pb.redirectErrorStream(true);
 		System.out.println("Starting process. Current memory usage is " + ((Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024 / 1024) + "MB");

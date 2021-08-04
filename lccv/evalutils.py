@@ -14,26 +14,6 @@ import sklearn
 from sklearn import metrics
 from sklearn import *
 
-learners = [
-    (sklearn.svm.LinearSVC, {}),
-    (sklearn.tree.DecisionTreeClassifier, {}),
-    (sklearn.tree.ExtraTreeClassifier, {}),
-    (sklearn.linear_model.LogisticRegression, {}),
-    (sklearn.linear_model.PassiveAggressiveClassifier, {}),
-    (sklearn.linear_model.Perceptron, {}),
-    (sklearn.linear_model.RidgeClassifier, {}),
-    (sklearn.linear_model.SGDClassifier, {}),
-    (sklearn.neural_network.MLPClassifier, {}),
-    (sklearn.discriminant_analysis.LinearDiscriminantAnalysis, {}),
-    (sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis, {}),
-    (sklearn.naive_bayes.BernoulliNB, {}),
-    (sklearn.naive_bayes.MultinomialNB, {}),
-    (sklearn.neighbors.KNeighborsClassifier, {}),
-    (sklearn.ensemble.ExtraTreesClassifier, {}),
-    (sklearn.ensemble.RandomForestClassifier, {}),
-    (sklearn.ensemble.GradientBoostingClassifier, {})
-]
-
 def evaluate(learner_inst, X, y, num_examples, seed=0, timeout = None, verbose=False):
     deadline = None if timeout is None else time.time() + timeout
     random.seed(seed)
@@ -134,11 +114,11 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     best_score = 1
     chosen_learner = None
     validation_times = []
-    for learner in learners:
-        print("Checking learner " + str(learner))
+    for i, learner in enumerate(learners):
+        print("\n--------------------------------------------------Checking learner " + str(i + 1) + "/" + str(len(learners)) + " (" + str(learner) + ")\n--------------------------------------------------")
         try:
             validation_start = time.time()
-            score = validation_result_extractor(validation_func(learner(), X, y, r = r, timeout=timeout_per_evaluation, seed=seed))
+            score = validation_result_extractor(validation_func(learner, X, y, r = r, timeout=timeout_per_evaluation, seed=seed))
             runtime = time.time() - validation_start
             validation_times.append(runtime)
             print("Observed score " + str(score) + " for " + str(learner) + ". Validation took " + str(int(np.round(runtime * 1000))) + "ms")
@@ -170,7 +150,7 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
         if chosen_learner is None:
             out[validator.__name__] = ("n/a", runtime, np.nan)
         else:
-            if not chosen_learner.__name__ in performances:
-                performances[chosen_learner.__name__] = mccv(chosen_learner(), X, y, repeats=repeats, seed=4711)
-            out[validator.__name__] = (chosen_learner.__name__, runtime, performances[chosen_learner.__name__])
+            if not str(chosen_learner.steps) in performances:
+                performances[str(chosen_learner.steps)] = mccv(chosen_learner, X, y, repeats=repeats, seed=4711)
+            out[validator.__name__] = (chosen_learner.steps, runtime, performances[str(chosen_learner.steps)])
     return out
