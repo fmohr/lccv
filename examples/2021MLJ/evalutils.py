@@ -15,35 +15,6 @@ from sklearn import metrics
 from sklearn import *
 
 
-def evaluate(learner_inst, X, y, num_examples, seed=0, timeout = None, verbose=False):
-    deadline = None if timeout is None else time.time() + timeout
-    random.seed(seed)
-    n = X.shape[0]
-    indices_train = random.sample(range(n), num_examples)
-    mask_train = np.zeros(n)
-    mask_train[indices_train] = 1
-    mask_train = mask_train.astype(bool)
-    mask_test = (1 - mask_train).astype(bool)
-    X_train = X[mask_train]
-    y_train = y[mask_train]
-    X_test = X[mask_test][:10000]
-    y_test = y[mask_test][:10000]
-
-    if verbose:
-        print("Training " + str(learner_inst) + " on data of shape " + str(X_train.shape) + " using seed " + str(seed))
-    if deadline is None:
-        learner_inst.fit(X_train, y_train)
-    else:
-        func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
-            
-    
-    y_hat = learner_inst.predict(X_test)
-    error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-    if verbose:
-        print("Training ready. Obtaining predictions for " + str(X_test.shape[0]) + " instances. Error rate of model on " + str(len(y_hat)) + " instances is " + str(error_rate))
-    return error_rate
-
-
 def get_dataset(openmlid):
     """
     Reads in a dataset from openml.org via the ID, returning a matrix X and a label vector y.
