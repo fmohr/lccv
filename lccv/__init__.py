@@ -1,1 +1,1 @@
-from .lccv import lccv
+from .lccv import lccv, evaluate

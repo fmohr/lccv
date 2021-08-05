@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import openml
+import lccv
 
 from func_timeout import func_timeout, FunctionTimedOut
 
@@ -63,12 +64,12 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
     for r in range(repeats):
         print("Seed in MCCV:",seed)
         if timeout is None:
-            scores.append(evaluate(learner, X, y, num_examples, seed))
+            scores.append(lccv.evaluate(learner, X, y, num_examples, seed))
         else:
             try:
                 if deadline <= time.time():
                     break
-                scores.append(func_timeout(deadline - time.time(), evaluate, (learner, X, y, num_examples, seed)))
+                scores.append(func_timeout(deadline - time.time(), lccv.evaluate, (learner, X, y, num_examples, seed)))
             except FunctionTimedOut:
                 break
 

@@ -316,7 +316,7 @@ def lccv(learner_inst, X, y, r = 1.0, timeout=None, base = 2, min_exp = 6, MAX_E
                 elm.compute_and_add_sample(size, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
                 if verbose:
                     print("Sample computed successfully.")
-            except FunctionTimedOut:
+            except func_timeout.FunctionTimedOut:
                 timeouted = True
                 if verbose:
                     print("Timeouted")
