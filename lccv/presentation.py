@@ -63,7 +63,7 @@ def run(output_dir):
 
     axes[0].set_title("Convex learning curves")
     plot_series(axes[0], output_dir, 'convex', curves_convex, all_sizes, stdevs, ['b', 'g', 'r'])
-    axes[1].set_title("Concave learning curves")
+    axes[1].set_title("Non-convex learning curves")
     plot_series(axes[1], output_dir, 'concave', curves_concave, all_sizes, stdevs, ['c', 'm', 'y'])
     plt.close(fig)
 
@@ -72,15 +72,15 @@ def run(output_dir):
     axes.plot(all_sizes,
               [11.0, 8.0, 6.0, 5.0],
               'o-', color='b')
-    axes.plot(all_sizes[:2],
-              np.array([13.0, 12.0]),
+    axes.plot(all_sizes[:3],
+              np.array([15.0, 12.0, 10.00]),
               'o-', color='g')
     plt.tight_layout()
     filename = os.path.join(output_dir, 'prune_0.pdf')
     plt.savefig(filename)
 
-    axes.plot(all_sizes[1:],
-              np.array([12.0, 10.0, 6.00]),
+    axes.plot(all_sizes[2:],
+              np.array([10.0, 6.00]),
               '--', color='g')
     plt.tight_layout()
     filename = os.path.join(output_dir, 'prune_1.pdf')
