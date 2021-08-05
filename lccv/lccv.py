@@ -8,6 +8,7 @@ from evalutils import evaluate
 from func_timeout import func_timeout, FunctionTimedOut
 import matplotlib.pyplot as plt
 
+
 def getSlopes(anchor_points, observations):
     slopes = []
     for i, o in enumerate(observations):
@@ -16,11 +17,13 @@ def getSlopes(anchor_points, observations):
             slopes.append(slope)
     return slopes
 
+
 def mean(A):
     if len(A) == 0:
         raise Exception("Cannot compute mean for empty set.")
     #return scipy.stats.trim_mean(A, 0.1)
     return np.mean(A)
+
 
 def getLCApproximation(sizes, scores):
     def ipl(beta):
@@ -57,6 +60,7 @@ def getStagesAndBudgets(n, k = 10, alpha = .5, gamma = 2, min_anchor_points = 5)
         budgets.append(int(np.round(ac / (beta**(c-i - min_anchor_points)))))
     return c, budgets
 
+
 def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
     if len(observations) <= 2:
         raise Exception("Cannot compute bootstrap sample of less than 2 observations!")
@@ -67,6 +71,7 @@ def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
         sub_sample = random.sample(observations_as_list, bootstrap_size)
         bootstraps.append(stats(sub_sample))
     return bootstraps
+
 
 class EmpiricalLearningModel:
     
