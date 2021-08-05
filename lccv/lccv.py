@@ -1,3 +1,5 @@
+import typing
+
 import numpy as np
 import pandas as pd
 import scipy.stats
@@ -8,20 +10,44 @@ import func_timeout
 import matplotlib.pyplot as plt
 
 
-def evaluate(learner_inst, X, y, num_examples, seed=0, timeout=None,
+def _partition_train_test_data(
+        features: np.array, labels: np.array, n_train: int, n_test: int,
+        seed: int) -> typing.Tuple[np.array, np.array, np.array, np.array]:
+    """
+    Partitions the dataset in a test set of the size of the requested size, and
+    a train set of size n_train.
+
+    Note that regardless of the train size, the indices of the test set is
+    required to be constant.
+
+    :param features: The X-data
+    :param labels: The y-data
+    :param n_train: the requested train size
+    :param n_test: the requested test size
+    :param seed: The random seed
+    :return: A 4-tuple, consisting of the train features (2D np.array), the
+    train labels (1D np.array), the test features (2D np.array) and the test
+    labels (1D np.array)
+    """
+    random.seed(seed)
+    indices_test = random.sample(range(features.shape[0]), n_test)
+    if n_train + n_test > features.shape[0]:
+        raise ValueError('Requested train + test size higher than dataset size')
+    mask_test = np.zeros(features.shape[0])
+    mask_test[indices_test] = 1
+    mask_test = mask_test.astype(bool)
+    features_test = features[mask_test]
+    labels_test = labels[mask_test]
+
+    mask_train = (1 - mask_test).astype(bool)
+    features_train = features[mask_train][:n_train]
+    labels_train = labels[mask_train][:n_train]
+    return features_train, labels_train, features_test, labels_test
+
+
+def evaluate(learner_inst, X_train, y_train, X_test, y_test, timeout=None,
              verbose=False):
     deadline = None if timeout is None else time.time() + timeout
-    random.seed(seed)
-    n = X.shape[0]
-    indices_train = random.sample(range(n), num_examples)
-    mask_train = np.zeros(n)
-    mask_train[indices_train] = 1
-    mask_train = mask_train.astype(bool)
-    mask_test = (1 - mask_train).astype(bool)
-    X_train = X[mask_train]
-    y_train = y[mask_train]
-    X_test = X[mask_test][:10000]
-    y_test = y[mask_test][:10000]
 
     if verbose:
         print("Training " + str(learner_inst) + " on data of shape " + str(
