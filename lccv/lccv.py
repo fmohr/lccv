@@ -4,147 +4,73 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 import time
-import random
 import sklearn.metrics
 import func_timeout
-import matplotlib.pyplot as plt
 
 
 def _partition_train_test_data(
-        features: np.array, labels: np.array, n_train: int, n_test: int,
+        features: np.array, labels: np.array, n_test: int,
         seed: int) -> typing.Tuple[np.array, np.array, np.array, np.array]:
     """
     Partitions the dataset in a test set of the size of the requested size, and
     a train set of size n_train.
 
-    Note that regardless of the train size, the indices of the test set is
-    required to be constant.
-
     :param features: The X-data
     :param labels: The y-data
-    :param n_train: the requested train size
     :param n_test: the requested test size
     :param seed: The random seed
     :return: A 4-tuple, consisting of the train features (2D np.array), the
     train labels (1D np.array), the test features (2D np.array) and the test
     labels (1D np.array)
     """
-    random.seed(seed)
-    indices_test = random.sample(range(features.shape[0]), n_test)
-    if n_train + n_test > features.shape[0]:
-        raise ValueError('Requested train + test size higher than dataset size')
-    mask_test = np.zeros(features.shape[0])
-    mask_test[indices_test] = 1
-    mask_test = mask_test.astype(bool)
-    features_test = features[mask_test]
-    labels_test = labels[mask_test]
+    if seed is None:
+        raise ValueError('Seed can not be None (to ensure test set equality)')
+    np.random.seed(seed)
+    indices = np.arange(len(features))
+    np.random.shuffle(indices)
+    features = features[indices]
+    labels = labels[indices]
 
-    mask_train = (1 - mask_test).astype(bool)
-    features_train = features[mask_train][:n_train]
-    labels_train = labels[mask_train][:n_train]
-    return features_train, labels_train, features_test, labels_test
-
-
-def evaluate(learner_inst, X_train, y_train, X_test, y_test, timeout=None,
-             verbose=False):
-    deadline = None if timeout is None else time.time() + timeout
-
-    if verbose:
-        print("Training " + str(learner_inst) + " on data of shape " + str(
-            X_train.shape) + " using seed " + str(seed))
-    if deadline is None:
-        learner_inst.fit(X_train, y_train)
-    else:
-        func_timeout.func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
-
-    y_hat = learner_inst.predict(X_test)
-    error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-    if verbose:
-        print("Training ready. Obtaining predictions for " + str(
-            X_test.shape[0]) + " instances. Error rate of model on " + str(
-            len(y_hat)) + " instances is " + str(error_rate))
-    return error_rate
-
-
-def getSlopes(anchor_points, observations):
-    slopes = []
-    for i, o in enumerate(observations):
-        if i > 0:
-            slope = (mean(o) - mean(observations[i-1])) / (anchor_points[i] - anchor_points[i-1])
-            slopes.append(slope)
-    return slopes
-
-
-def mean(A):
-    if len(A) == 0:
-        raise Exception("Cannot compute mean for empty set.")
-    #return scipy.stats.trim_mean(A, 0.1)
-    return np.mean(A)
-
-
-def getLCApproximation(sizes, scores):
-    def ipl(beta):
-        a, b, c = tuple(beta.astype(float))
-        pl = lambda x: a + b * x **(-c)
-        penalty = []
-        for i, size in enumerate(sizes):
-            penalty.append((pl(size) - scores[i])**2)
-        return np.array(penalty)
-
-    a, b, c = tuple(scipy.optimize.least_squares(ipl, np.array([1,1,1]), method="lm").x)
-    return lambda x: a + b * x **(-c)
-
-
-def getStagesAndBudgets(n, k = 10, alpha = .5, gamma = 2, min_anchor_points = 5):
-        
-    # derive basic sizes
-    d = int(np.floor(np.log(.9 * n) / np.log(2)))
-    ac = alpha * k
-    
-    # optimize for c and beta
-    c = min_anchor_points + 1
-    beta = (alpha / gamma)**(1/(c-min_anchor_points))
-    while np.sum([1/(2*beta)**i for i in range(c - min_anchor_points + 1)]) <= 2**(d-c)/alpha:
-        c += 1
-        beta = (alpha / gamma)**(1/(c-min_anchor_points))
-    c -= 1
-    beta = (alpha / gamma)**(1/(c-min_anchor_points))
-    
-    # define anchor points and time budgets
-    points = 2**np.array(range(min_anchor_points, c + 1))
-    budgets = []
-    for i, p in enumerate(points):
-        budgets.append(int(np.round(ac / (beta**(c-i - min_anchor_points)))))
-    return c, budgets
-
-
-def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
-    if len(observations) <= 2:
-        raise Exception("Cannot compute bootstrap sample of less than 2 observations!")
-    bootstraps = []
-    observations_as_list = list(observations)
-    bootstrap_size = int(0.5 * len(observations_as_list))
-    for i in range(n):
-        sub_sample = random.sample(observations_as_list, bootstrap_size)
-        bootstraps.append(stats(sub_sample))
-    return bootstraps
+    return features[n_test:], labels[n_test:], features[:n_test], labels[:n_test]
 
 
 class EmpiricalLearningModel:
     
-    def __init__(self, learner, X, y):
+    def __init__(self, learner, X, y, n_test, seed):
         self.learner = learner
-        self.X = X
-        self.y = y
+        self.X_train, self.y_train, self.X_test, self.y_test = _partition_train_test_data(X, y, n_test, seed)
         self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate", "runtime"])
+
+    def evaluate(self, learner_inst, size, timeout, verbose):
+        deadline = None if timeout is None else time.time() + timeout
+        indices = np.random.choice(len(self.X_train), size, replace=False)
+
+        if verbose:
+            print("Training " + str(learner_inst) + " on data of shape " + str(self.X_train.shape))
+        if deadline is None:
+            learner_inst.fit(self.X_train[indices], self.y_train[indices])
+        else:
+            func_timeout.func_timeout(deadline - time.time(), learner_inst.fit,
+                                      (self.X_train[indices], self.y_train[indices]))
+
+        y_hat = learner_inst.predict(self.X_test)
+        error_rate = 1 - sklearn.metrics.accuracy_score(self.y_test, y_hat)
+        if verbose:
+            print("Training ready. Obtaining predictions for " + str(
+                self.X_test.shape[0]) + " instances. Error rate of model on " + str(
+                len(y_hat)) + " instances is " + str(error_rate))
+        return error_rate
     
-    def compute_and_add_sample(self, size, seed = None, timeout = None, verbose = False):
+    def compute_and_add_sample(
+            self, size, seed=None, timeout=None, verbose=False):
         tic = time.time()
-        if seed is None:
-            seed = int(tic)
-        error_rate = evaluate(sklearn.base.clone(self.learner), self.X, self.y, size, seed, timeout / 1000 if timeout is not None else None, verbose=verbose)
+        # TODO: important to check whether this is always a different order
+        error_rate = self.evaluate(
+            sklearn.base.clone(self.learner), size,
+            timeout / 1000 if timeout is not None else None, verbose)
         toc = time.time()
-        self.df.loc[len(self.df)] = [size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
+        self.df.loc[len(self.df)] = [
+            size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
     
     def get_values_at_anchor(self, anchor):
@@ -152,10 +78,6 @@ class EmpiricalLearningModel:
         
     def get_ipl_estimate_at_target(self, target):
         return self.get_ipl()(target)
-    
-    def get_confidence_interval(self, size):
-        dfProbesAtSize = self.df[self.df["trainsize"] == size]
-        return 
     
     def get_normal_estimates(self, size = None):
         
@@ -174,7 +96,7 @@ class EmpiricalLearningModel:
             "mean": mu,
             "std": sigma,
             "conf": scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize)))
-        }        
+        }
     
     def get_slope_ranges(self):
         est = self.get_normal_estimates()
@@ -261,20 +183,9 @@ class EmpiricalLearningModel:
         a = np.abs(lr.coef_[1])
         inner = (-b/(2 * a))**2 - (lr.intercept_ - runtime) / a
         return -b/(2 * a) + np.sqrt(inner)
-
-    def plot_model(self, ax = None):
-        estimates = self.get_normal_estimates()
-        sizes = [s for s in estimates]
-        means = [estimates[s]["mean"] for s in sizes]
-        lower = [estimates[s]["conf"][0] for s in sizes]
-        upper = [estimates[s]["conf"][1] for s in sizes]
-        if ax is None:
-            fig, ax = plt.subplots()
-        ax.plot(sizes, means)
-        ax.fill_between(sizes, lower, upper, alpha=0.2)
     
 
-def lccv(learner_inst, X, y, r = 1.0, timeout=None, base = 2, min_exp = 6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = 0.03, MAX_EVALUATIONS = 10, target = None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default = 0.1, max_conf_interval_size_target = 0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=True):
+def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False):
     
     if enforce_all_anchor_evaluations:
         if verbose:
@@ -284,11 +195,13 @@ def lccv(learner_inst, X, y, r = 1.0, timeout=None, base = 2, min_exp = 6, MAX_E
     # intialize
     tic = time.time()
     deadline = tic + timeout if timeout is not None else None
-    elm = EmpiricalLearningModel(learner_inst, X, y)
-    
+
     # configure the exponents and status variables
     if target is None:
         target = int(np.floor(X.shape[0] * 0.9))
+
+    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target, seed)
+
     max_exp = np.log(target) / np.log(base)    
     reachable = True
     estimate_history = []
