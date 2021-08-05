@@ -4,9 +4,41 @@ import scipy.stats
 import time
 import random
 import sklearn.metrics
-from evalutils import evaluate
-from func_timeout import func_timeout, FunctionTimedOut
+import func_timeout
 import matplotlib.pyplot as plt
+
+
+def evaluate(learner_inst, X, y, num_examples, seed=0, timeout=None,
+             verbose=False):
+    deadline = None if timeout is None else time.time() + timeout
+    random.seed(seed)
+    n = X.shape[0]
+    indices_train = random.sample(range(n), num_examples)
+    mask_train = np.zeros(n)
+    mask_train[indices_train] = 1
+    mask_train = mask_train.astype(bool)
+    mask_test = (1 - mask_train).astype(bool)
+    X_train = X[mask_train]
+    y_train = y[mask_train]
+    X_test = X[mask_test][:10000]
+    y_test = y[mask_test][:10000]
+
+    if verbose:
+        print("Training " + str(learner_inst) + " on data of shape " + str(
+            X_train.shape) + " using seed " + str(seed))
+    if deadline is None:
+        learner_inst.fit(X_train, y_train)
+    else:
+        func_timeout.func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
+
+    y_hat = learner_inst.predict(X_test)
+    error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+    if verbose:
+        print("Training ready. Obtaining predictions for " + str(
+            X_test.shape[0]) + " instances. Error rate of model on " + str(
+            len(y_hat)) + " instances is " + str(error_rate))
+    return error_rate
+
 
 def getSlopes(anchor_points, observations):
     slopes = []
@@ -16,11 +48,13 @@ def getSlopes(anchor_points, observations):
             slopes.append(slope)
     return slopes
 
+
 def mean(A):
     if len(A) == 0:
         raise Exception("Cannot compute mean for empty set.")
     #return scipy.stats.trim_mean(A, 0.1)
     return np.mean(A)
+
 
 def getLCApproximation(sizes, scores):
     def ipl(beta):
@@ -57,6 +91,7 @@ def getStagesAndBudgets(n, k = 10, alpha = .5, gamma = 2, min_anchor_points = 5)
         budgets.append(int(np.round(ac / (beta**(c-i - min_anchor_points)))))
     return c, budgets
 
+
 def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
     if len(observations) <= 2:
         raise Exception("Cannot compute bootstrap sample of less than 2 observations!")
@@ -67,6 +102,7 @@ def get_bootstrap_samples(observations, n, stats=lambda x: np.mean(x)):
         sub_sample = random.sample(observations_as_list, bootstrap_size)
         bootstraps.append(stats(sub_sample))
     return bootstraps
+
 
 class EmpiricalLearningModel:
     

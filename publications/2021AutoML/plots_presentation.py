@@ -6,9 +6,10 @@ import os
 
 
 def parse_args():
+    default_path = '~/experiments/lccv/plots/example_curves'
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_dir', type=str,
-                        default='plots/example_curves')
+                        default=os.path.expanduser(default_path))
     return parser.parse_args()
 
 
