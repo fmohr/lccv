@@ -184,7 +184,7 @@ class EmpiricalLearningModel:
         return -b/(2 * a) + np.sqrt(inner)
     
 
-def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=5):
+def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=5):
     
     # create standard logger if none is given
     if logger is None:
@@ -199,17 +199,20 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     deadline = tic + timeout if timeout is not None else None
 
     # configure the exponents and status variables
-    if target is None:
-        target = int(np.floor(X.shape[0] * 0.9))
+    if target_anchor is None:
+        target_anchor = int(np.floor(X.shape[0] * 0.9))
 
-    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target, seed)
+    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target_anchor, seed)
 
-    max_exp = np.log(target) / np.log(base)    
+    max_exp = np.log(target_anchor) / np.log(base)    
     reachable = True
     estimate_history = []
     stable_anchors = []
     
-    logger.info("Running LCCV on " + str(X.shape) + "-shaped data for learner " + str(learner_inst) + " with r = " + str(r) + ". Overview:\n\tmin_exp: " + str(min_exp) + "\n\tmax_exp: " + str(max_exp) + ". Seed is " + str(seed))
+    logger.info(f"""Running LCCV on {X.shape}-shaped data for learner {learner_inst} with r = {r}. Overview:
+    \n\tmin_exp: {min_exp}
+    \n\tmax_exp: {max_exp}
+    \n\tSeed is {seed}""")
     
     # while we can still reach the target value r but have not yet reached it, keep running.
     cur_exp = min_exp
@@ -217,7 +220,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     timeouted = False
     while reachable and cur_exp <= max_exp and not timeouted and (not max_exp in eval_counter or eval_counter[max_exp] < MAX_EVALUATIONS):
         
-        target_estimates = elm.get_normal_estimates(target)
+        target_estimates = elm.get_normal_estimates(target_anchor)
         if np.isnan(target_estimates["conf"][0]) and target_estimates["std"] == 0 and target_estimates["n"] > 2:
             logger.info("convered, stopping")
             break
@@ -285,12 +288,12 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                     break
                 else:
                     if deadline is None:
-                        feasible_target = target
+                        feasible_target = target_anchor
                         logger.debug("Setting exponent to maximum (no timeout given)")
                     else:
                         remaining_time = deadline - time.time()
                         max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
-                        feasible_target = min(target, max_size_in_timeout)
+                        feasible_target = min(target_anchor, max_size_in_timeout)
                         logger.debug(f"Setting exponent to maximally possible in remaining time {remaining_time}s according to current belief.")
                         logger.debug(f"Max size in timeout: {max_size_in_timeout}")
                         logger.debug(f"Expected runtime at that size: {elm.predict_runtime(max_size_in_timeout)}")
@@ -307,8 +310,8 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                 break
             
             
-            bounds = elm.get_performance_interval_at_target(target)
-            logger.info("Estimated bounds for performance interval at " + str(target) + ": " + str(bounds))
+            bounds = elm.get_performance_interval_at_target(target_anchor)
+            logger.info("Estimated bounds for performance interval at " + str(target_anchor) + ": " + str(bounds))
             reachable = bounds[1] <= r
             if not reachable:
                 pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
@@ -329,14 +332,14 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                     last_conf = (last_conf_lower, last_conf_upper)
                 logger.debug(f"""Summary of cut-off run:
                             \tLast size: {last_size}
-                            \tRemaining steps: {(target - last_size)}
+                            \tRemaining steps: {(target_anchor - last_size)}
                             \toffset: {last_conf_lower}
-                            \tPrediction: {optimistic_slope * (target - last_size) + last_conf_lower}""")
+                            \tPrediction: {optimistic_slope * (target_anchor - last_size) + last_conf_lower}""")
                 logger.info(f"Returning nan and normal estimates: {normal_estimates_last['mean']}, {normal_estimates}, {elm}")
                 return np.nan, normal_estimates_last["mean"], normal_estimates, elm
             
             if cur_exp > min_exp + 1 and cur_exp < max_exp:
-                estimation = elm.get_ipl_estimate_at_target(target)
+                estimation = elm.get_ipl_estimate_at_target(target_anchor)
                 estimate_history.append(estimation)
                 logger.info(f"IPL Estimate for target is {estimation}.")
                 if estimation <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION:
@@ -391,7 +394,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     logger.info("Learning Curve Construction Completed. Conditions:\n\tReachable: " + str(reachable) + "\n\tTimeout: " + str(timeouted))
     logger.info(f"Estimate History: {estimate_history}")
     logger.info(f"LC: {estimates}")
-    logger.info(f"Runtime: {toc-tic}. Expected runtime on {target}: {elm.predict_runtime(target)}")
+    logger.info(f"Runtime: {toc-tic}. Expected runtime on {target_anchor}: {elm.predict_runtime(target_anchor)}")
     if len(estimates) == 0:
         return np.nan, np.nan, [], elm
     elif len(estimates) < 3:
@@ -399,6 +402,6 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
         return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm
     else:
         max_anchor = max([int(k) for k in estimates])
-        target_performance = estimates[max_anchor]["mean"] if cur_exp == max_exp or not return_estimate_on_incomplete_runs else elm.get_ipl_estimate_at_target(target)
+        target_performance = estimates[max_anchor]["mean"] if cur_exp == max_exp or not return_estimate_on_incomplete_runs else elm.get_ipl_estimate_at_target(target_anchor)
         logger.info(f"Target performance: {target_performance}")
         return target_performance, estimates[max_anchor]["mean"], estimates, elm
