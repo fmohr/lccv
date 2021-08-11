@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--seed', type=int)
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--num_pipelines', type=int, default=1000)
-    parser.add_argument('--output_file', type=str, default=os.path.expanduser(default_path))
+    parser.add_argument('--folder', type=str, default=os.path.expanduser(default_path))
     return parser.parse_args()
 
 
@@ -36,7 +36,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
         print(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
         
     # memory limits
-    memory_limit = 2 * 1024
+    memory_limit = 14 * 1024
     print("Setting memory limit to " + str(memory_limit) + "MB")
     soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
     resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
