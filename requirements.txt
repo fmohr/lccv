@@ -1,6 +1,9 @@
+ConfigSpace
 func_timeout
 matplotlib
 numpy
 openml
 pandas
+pebble
+psutil
 scikit-learn
