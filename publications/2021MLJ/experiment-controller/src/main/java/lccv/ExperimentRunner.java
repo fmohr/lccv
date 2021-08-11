@@ -12,6 +12,9 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import ai.libs.jaicore.basic.FileUtil;
 import ai.libs.jaicore.experiments.ExperimentDBEntry;
 import ai.libs.jaicore.experiments.ExperimenterFrontend;
@@ -44,13 +47,14 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 			/* run python experiment */
 			String options = openmlid + " " + algo + " " + seed + " " + timeout;
-			List<Object> results = getPythonExperimentResults(options);
+			JsonNode results = getPythonExperimentResults(options);
+			logger.info("Obtained result json node: {}", results);
 
 			/* write results */
 			Map<String, Object> map = new HashMap<>();
-			map.put("chosenmodel", results.get(0));
-			map.put("errorrate", results.get(1));
-			map.put("runtime", results.get(2));
+			map.put("chosenmodel", results.get(0).asText());
+			map.put("errorrate", results.get(1).asDouble());
+			map.put("runtime", results.get(2).asInt());
 			processor.processResults(map);
 		}
 		catch (Exception e) {
@@ -58,7 +62,7 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 		}
 	}
 
-	public static List<Object> getPythonExperimentResults(final String options) throws InterruptedException, IOException, ProcessIDNotRetrievableException {
+	public static JsonNode getPythonExperimentResults(final String options) throws InterruptedException, IOException, ProcessIDNotRetrievableException {
 		File workingDirectory = new File("python/singularity");
 		String id = UUID.randomUUID().toString();
 		File folder = new File(workingDirectory.getAbsolutePath() + File.separator + "tmp/" + id);
@@ -87,8 +91,7 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 			}
 			System.out.println("ready");
 
-			String[] results = FileUtil.readFileAsString(new File(folder + File.separator + "results.txt")).split(" ");
-			return Arrays.asList(results[0], results[1], results[2]);
+			return new ObjectMapper().readTree(FileUtil.readFileAsString(new File(folder + File.separator + "results.txt")));
 		}
 		finally {
 			System.out.println("KILLING PROCESS!");

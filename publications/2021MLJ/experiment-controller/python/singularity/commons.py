@@ -12,6 +12,7 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.cluster import SpectralClustering
 from sklearn import metrics
 from sklearn import *
+from scipy.sparse import lil_matrix
 
 import pebble
 from func_timeout import func_timeout, FunctionTimedOut
@@ -368,7 +369,9 @@ def compile_pipeline_by_class_and_params(clazz, params, X, y):
         activation = str(params["activation"])
         alpha = float(params["alpha"])
         learning_rate_init = float(params["learning_rate_init"])
-        early_stopping = str(params["early_stopping"])
+        
+        early_stopping = "train"
+        
         tol = float(params["tol"])
         if early_stopping == "train":
             validation_fraction = 0.0
@@ -505,6 +508,9 @@ def compile_pipeline_by_class_and_params(clazz, params, X, y):
     
     if clazz == sklearn.ensemble.GradientBoostingClassifier:
         from sklearn.experimental import enable_hist_gradient_boosting  # noqa
+        
+        params["early_stop"] = "off" # always deactivate
+        
         learning_rate = float(params["learning_rate"])
         max_iter = int(params["max_iter"]) if "max_iter" in params else 512
         min_samples_leaf = int(params["min_samples_leaf"])
@@ -678,13 +684,15 @@ sklearn.preprocessing.PowerTransformer, "classifier": sklearn.naive_bayes.Multin
     
 class PipelineSampler:
     
-    def __init__(self, search_space_file, X, y, dp_proba = 0, fp_proba = 0):
+    def __init__(self, search_space_file, X, y, seed, dp_proba = 0, fp_proba = 0):
         self.X = X
         self.y = y
         self.dp_proba = dp_proba
         self.fp_proba = fp_proba
         self.search_space = []
         self.search_space_description = json.load(open(search_space_file))
+        self.seed = np.random.randint(10**9) if seed is None else seed
+        self.rs = np.random.RandomState(self.seed)
         
         def get_factor_of_parameter_space(params):
             factor_global = 1
@@ -707,6 +715,7 @@ class PipelineSampler:
             comp_descriptions = {}
             for comp in step["components"]:
                 params = config_json.read(comp["params"])
+                params.random = self.rs
                 comp_descriptions[comp["class"]] = {"params": params, "weight": get_factor_of_parameter_space(params)}
             self.search_space.append(comp_descriptions)
         
@@ -714,7 +723,7 @@ class PipelineSampler:
         classes = list(self.search_space[slot].keys())
         weights = np.log(1 + np.array([self.search_space[slot][clazz]["weight"] for clazz in classes]))
         probabilities = weights / sum(weights)
-        target = np.random.rand()
+        target = self.rs.rand()
         s = 0
         for i, prob in enumerate(probabilities):
             s += prob
@@ -723,9 +732,7 @@ class PipelineSampler:
                 comp = [c for c in self.search_space_description[slot]["components"] if c["class"] == clazz][0]
                 params = {}
                 config_space = self.search_space[slot][clazz]["params"]
-                print("\tVOR")
                 sampled_config = config_space.sample_configuration(1)
-                print("\tNACH")
                 for hp in config_space.get_hyperparameters():
                     if hp.name in sampled_config:
                         params[hp.name] = sampled_config[hp.name]
@@ -738,11 +745,11 @@ class PipelineSampler:
         steps = []
         
         # sample a data pre-processor?
-        if np.random.rand() <= self.dp_proba:
+        if self.rs.rand() <= self.dp_proba:
             steps.append(("data-pre-processor", self.sample_configured_algorithm(0)))
             
         # sample a feature pre-processor?
-        if np.random.rand() <= self.dp_proba:
+        if self.rs.rand() <= self.dp_proba:
             steps.append(("feature-pre-processor", self.sample_configured_algorithm(1)))
         
         # now sample a predictor
