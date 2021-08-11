@@ -27,7 +27,7 @@ def _partition_train_test_data(
     if seed is None:
         raise ValueError('Seed can not be None (to ensure test set equality)')
     np.random.seed(seed)
-    indices = np.arange(len(features))
+    indices = np.arange(features.shape[0])
     np.random.shuffle(indices)
     features = features[indices]
     labels = labels[indices]
@@ -46,7 +46,7 @@ class EmpiricalLearningModel:
 
     def evaluate(self, learner_inst, size, timeout, verbose):
         deadline = None if timeout is None else time.time() + timeout
-        indices = np.random.choice(len(self.X_train), size, replace=False)
+        indices = np.random.choice(self.X_train.shape[0], size, replace=False)
 
         self.logger.info("Training " + str(learner_inst) + " on data of shape " + str(self.X_train.shape))
         if deadline is None:
@@ -57,7 +57,7 @@ class EmpiricalLearningModel:
 
         y_hat = learner_inst.predict(self.X_test)
         error_rate = 1 - sklearn.metrics.accuracy_score(self.y_test, y_hat)
-        self.logger.info("Training ready. Obtaining predictions for " + str(self.X_test.shape[0]) + " instances. Error rate of model on " + str(len(y_hat)) + " instances is " + str(error_rate))
+        self.logger.info("Training ready. Obtaining predictions for " + str(self.X_test.shape[0]) + " instances. Error rate of model on " + str(y_hat.shape[0]) + " instances is " + str(error_rate))
         return error_rate
     
     def compute_and_add_sample(
@@ -74,11 +74,17 @@ class EmpiricalLearningModel:
     
     def get_values_at_anchor(self, anchor):
         return self.df[self.df["trainsize"] == anchor]["error_rate"].values
-        
+    
+    def get_conf_interval_size_at_target(self, target):
+        if len (self.df[self.df["trainsize"] == target]) == 0:
+            return 1
+        ci = self.get_normal_estimates(size = target)["conf"]
+        return ci[1] - ci[0]
+    
     def get_ipl_estimate_at_target(self, target):
         return self.get_ipl()(target)
     
-    def get_normal_estimates(self, size = None):
+    def get_normal_estimates(self, size = None, round_precision=100):
         
         if size is None:
             sizes = sorted(np.unique(self.df["trainsize"]))
@@ -92,9 +98,9 @@ class EmpiricalLearningModel:
         sigma = np.std(dfProbesAtSize["error_rate"])
         return {
             "n": len(dfProbesAtSize["error_rate"]),
-            "mean": mu,
-            "std": sigma,
-            "conf": scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize))) if sigma > 0 else (mu, mu)
+            "mean": np.round(mu, round_precision),
+            "std": np.round(sigma, round_precision),
+            "conf": np.round(scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize))) if sigma > 0 else (mu, mu), round_precision)
         }
     
     def get_slope_ranges(self):
@@ -190,10 +196,6 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     if logger is None:
         logger = logging.getLogger('lccv')
     
-    if enforce_all_anchor_evaluations:
-        logger.info("All anchor evaluations enforced, setting r to 1.0")
-        r = 1.0
-    
     # intialize
     tic = time.time()
     deadline = tic + timeout if timeout is not None else None
@@ -201,200 +203,115 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     # configure the exponents and status variables
     if target_anchor is None:
         target_anchor = int(np.floor(X.shape[0] * 0.9))
-
+    
+    
+    # initialize important variables and datastructures
+    max_exp = np.log(target_anchor) / np.log(base)
+    schedule = [base**i for i in list(range(min_exp, int(np.ceil(max_exp))))] + [target_anchor]
+    slopes = (len(schedule) - 1) * [np.nan]
     elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target_anchor, seed)
-
-    max_exp = np.log(target_anchor) / np.log(base)    
-    reachable = True
-    estimate_history = []
-    stable_anchors = []
+    T = len(schedule) - 1
+    t = 0 if r < 1 or enforce_all_anchor_evaluations else T
+    repair_convexity = False
     
+    # announce start event together with state variable values
     logger.info(f"""Running LCCV on {X.shape}-shaped data for learner {learner_inst} with r = {r}. Overview:
-    \n\tmin_exp: {min_exp}
-    \n\tmax_exp: {max_exp}
-    \n\tSeed is {seed}""")
+    min_exp: {min_exp}
+    max_exp: {max_exp}
+    Seed is {seed}
+    t_0: {t}
+    Schedule: {schedule}""")
     
-    # while we can still reach the target value r but have not yet reached it, keep running.
-    cur_exp = min_exp
-    eval_counter = {}
-    timeouted = False
-    while reachable and cur_exp <= max_exp and not timeouted and (not max_exp in eval_counter or eval_counter[max_exp] < MAX_EVALUATIONS):
+    ## MAIN LOOP
+    while t <= T and elm.get_conf_interval_size_at_target(target_anchor) > max_conf_interval_size_target and len(elm.get_values_at_anchor(target_anchor)) < MAX_EVALUATIONS:    
         
-        target_estimates = elm.get_normal_estimates(target_anchor)
-        if np.isnan(target_estimates["conf"][0]) and target_estimates["std"] == 0 and target_estimates["n"] > 2:
-            logger.info("convered, stopping")
-            break
-        if target_estimates["conf"][1] - target_estimates["conf"][0] < max_conf_interval_size_target:
-            logger.info("convered, stopping")
-            break
+        # initialize stage-specific variables
+        eps = max_conf_interval_size_target if t == T else max_conf_interval_size_default
+        s_t = schedule[t]
+        num_evaluations_at_t = len(elm.get_values_at_anchor(s_t))
+        logger.debug(f"Running iteration for t = {t}. Anchor point s_t is {s_t}")
         
-        if cur_exp == max_exp:
-            logger.info("Reached full dataset size. Disabling max number of evaluations (setting it to 10).")
-            MAX_EVALUATIONS = 10
-        
-        # get samples until the variance of the sample mean is believed to be small
-        stable = cur_exp in stable_anchors
-        size = int(np.round(base ** cur_exp))
-        logger.info(f"Entering stage for anchor point size {size}. That is exponent {cur_exp}. Currently considered maximum size is {max_exp}. The stable anchors are {stable_anchors}")
-        
-        while reachable and (not stable or (enforce_all_anchor_evaluations and eval_counter[cur_exp] < MAX_EVALUATIONS)):
-            if not cur_exp in eval_counter:
-                eval_counter[cur_exp] = 0
-            if eval_counter[cur_exp] >= MAX_EVALUATIONS:
-                stable = True
-                logger.info("Maximum number of evaluations reached.")
-                break
-
+        ## INNER LOOP: acquire observations at anchor until stability is reached, or just a single one to repair convexity
+        while repair_convexity or num_evaluations_at_t < min_evals_for_stability or (elm.get_conf_interval_size_at_target(s_t) > eps and num_evaluations_at_t < MAX_EVALUATIONS):
+            
+            # unset flag for convexity repair
+            repair_convexity = False
+            
+            # compute next sample
             try:
-                seed_local = eval_counter[cur_exp] if cur_exp in eval_counter else 0
-                seed_used = 13 * seed + seed_local
-                logger.info("Adding point at size " + str(size) + ". Seed is " + str(seed_used) + ". Counter is " + str(eval_counter[cur_exp]))
-                elm.compute_and_add_sample(size, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
+                seed_used = 13 * (1 + seed) + num_evaluations_at_t
+                logger.debug(f"Adding point at size {s_t} with seed is {seed_used}.")
+                elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
+                num_evaluations_at_t += 1
                 logger.debug("Sample computed successfully.")
             except func_timeout.FunctionTimedOut:
                 timeouted = True
-                logger.debug("Timeouted")
+                logger.info("Observed timeout. Stopping LCCV.")
                 break
-
-            eval_counter[cur_exp] += 1
-            values_at_anchor = elm.get_values_at_anchor(size)
-            std = np.std(values_at_anchor)
-            logger.debug("std of " + str(values_at_anchor) + ": " + str(std))
-            if std == 0:
-                stable = len(values_at_anchor) > 2
-            else:
-                conf_interval = scipy.stats.norm.interval(0.9, loc=np.mean(values_at_anchor), scale=np.std(values_at_anchor)/np.sqrt(len(values_at_anchor)))
-                conf_interval_size = (conf_interval[1] - conf_interval[0])
-                cond_conf_interval_size = conf_interval_size < max_conf_interval_size_default if cur_exp < max_exp else conf_interval_size < max_conf_interval_size_target
-                logger.debug("Confidence bounds for performance interval at " + str(size) + ": " + str(conf_interval) + ". Size: " + str(conf_interval_size))
-
-                stable = cond_conf_interval_size and (cur_exp - min_exp >= 3 or eval_counter[cur_exp] >= min_evals_for_stability)
-
-                if cur_exp == max_exp:
-                    reachable = conf_interval[0] <= r
-                    if not reachable:
-                        logger.info("GOAL NOT REACHABLE ANYMORE!")
+            
+            # check wheter a repair is needed
+            if num_evaluations_at_t >= min_evals_for_stability and t < T:
+                if t > 2:
+                    slopes = elm.get_slope_ranges()
+                    if len(slopes) < 2:
+                        raise Exception(f"There should be two slope ranges for t > 2 (t is {t}), but we observed only 1.")
+                    if slopes[t - 2] < slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
+                        repair_convexity = True
                         break
+        
+        # after the last stage, we dont need any more tests
+        if t == T:
+            logger.info("Last iteration has been finished. Not testing anything else anymore.")
+            break
+        
+        # now decide how to proceed
+        if repair_convexity:
+            t -= 1
+            logger.debug(f"Convexity needs to be repaired, stepping back. t is now {t}")
+        elif t >= 2 and elm.get_performance_interval_at_target(target_anchor)[1] >= r:
+            
+            # prepare data for cut-off summary
+            pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
+            estimates = elm.get_normal_estimates()
+            sizes = sorted(np.unique(elm.df["trainsize"]))
+            i = -1
+            while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
+                i -= 1
+            last_size = s_t
+            normal_estimates_last = estimates[last_size]
+            last_conf = normal_estimates_last["conf"]
+            
+            # inform about cut-off
+            logger.info("Impossibly reachable, stopping and returning nan.")
+            logger.debug(f"""Details about stop:
+            Data:
+            {elm.df}
+            Normal Estimates: """ + ''.join(["\n\t\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]) + "\n\tSlope Ranges:" + ''.join(["\n\t\t" + str(schedule[i]) + " - " + str(schedule[i + 1]) + ": " +  str(e) for i, e in enumerate(elm.get_slope_ranges())]) + f"""
+            Last size: {last_size}
+            Optimistic offset at last evaluated anchor {last_size}: {last_conf[0]}
+            Optimistic slope from last segment: {optimistic_slope}
+            Remaining steps: {(target_anchor - last_size)}
+            Most optimistic value possible at target size {target_anchor}: {optimistic_slope * (target_anchor - last_size) + last_conf[0]}""")
+            return np.nan, normal_estimates_last["mean"], estimates, elm
 
-            if stable:
-                stable_anchors.append(cur_exp)
-
-        if cur_exp < max_exp and len(elm.get_values_at_anchor(size)) >= 1:
-            mean_score_at_last_anchor = np.mean(elm.get_values_at_anchor(size))
-            almost_reached =  mean_score_at_last_anchor <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION
-            if almost_reached and not enforce_all_anchor_evaluations:
-                if cur_exp == max_exp and stable:
-                    logger.info("Stopping LCCV construction since last stage is stable.")
-                    break
-                else:
-                    if deadline is None:
-                        feasible_target = target_anchor
-                        logger.debug("Setting exponent to maximum (no timeout given)")
-                    else:
-                        remaining_time = deadline - time.time()
-                        max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
-                        feasible_target = min(target_anchor, max_size_in_timeout)
-                        logger.debug(f"Setting exponent to maximally possible in remaining time {remaining_time}s according to current belief.")
-                        logger.debug(f"Max size in timeout: {max_size_in_timeout}")
-                        logger.debug(f"Expected runtime at that size: {elm.predict_runtime(max_size_in_timeout)}")
-                    cur_exp = np.log(feasible_target) / np.log(base)
-                    logger.debug(f"Feasible target: {feasible_target}")
-                    logger.info(f"Reached r-score {r} up to a precision of {MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION} (curent score is {np.round(mean_score_at_last_anchor, 4)})! Stopping LC construction and setting exponent to maximum value possible considering timeouts etc. Exponent is now {cur_exp}.")
-                    continue
-            
-        # check whether the goal is still reachable
-        if cur_exp > min_exp and not enforce_all_anchor_evaluations:
-            
-            if cur_exp == max_exp and stable:
-                logger.info(f"Stopping LCCV construction since last stage is stable (with normal estimates {elm.get_normal_estimates(size)}")
-                break
-            
-            
-            bounds = elm.get_performance_interval_at_target(target_anchor)
-            logger.info("Estimated bounds for performance interval at " + str(target_anchor) + ": " + str(bounds))
-            reachable = bounds[1] <= r
-            if not reachable:
-                pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
-                logger.info("Impossibly reachable, stopping.")
-                logger.debug(f"Details about stop:\nData:\n {elm.df} \n\tNormal Estimates: {elm.get_normal_estimates()}\n\tSlope Ranges: {elm.get_slope_ranges()}\n\tOptimistic slope: {optimistic_slope}")
-                sizes = sorted(np.unique(elm.df["trainsize"]))
-                i = -1
-                while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
-                    i -= 1
-                last_size = sizes[i]
-                normal_estimates = elm.get_normal_estimates()
-                normal_estimates_last = normal_estimates[last_size]
-                last_conf = normal_estimates_last["conf"]
-                last_conf_lower = last_conf[0]
-                last_conf_upper = last_conf[1]
-                if np.isnan(last_conf_lower):
-                    last_conf_lower = last_conf_upper = normal_estimates_last["mean"]
-                    last_conf = (last_conf_lower, last_conf_upper)
-                logger.debug(f"""Summary of cut-off run:
-                            \tLast size: {last_size}
-                            \tRemaining steps: {(target_anchor - last_size)}
-                            \toffset: {last_conf_lower}
-                            \tPrediction: {optimistic_slope * (target_anchor - last_size) + last_conf_lower}""")
-                logger.info(f"Returning nan and normal estimates: {normal_estimates_last['mean']}, {normal_estimates}, {elm}")
-                return np.nan, normal_estimates_last["mean"], normal_estimates, elm
-            
-            if cur_exp > min_exp + 1 and cur_exp < max_exp:
-                estimation = elm.get_ipl_estimate_at_target(target_anchor)
-                estimate_history.append(estimation)
-                logger.info(f"IPL Estimate for target is {estimation}.")
-                if estimation <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION:
-                    remaining_time = deadline - time.time()
-                    max_size_in_timeout = elm.get_max_size_for_runtime(remaining_time * 1000)
-                    feasible_target = min(target, max_size_in_timeout)
-                    cur_exp = np.log(feasible_target) / np.log(base)
-                    MAX_EVALUATIONS = 10
-                    
-                    logger.info("This IS close enough for full evaluation.")
-                    logger.info(f"Setting exponent to maximally possible in remaining time {remaining_time}s according to current belief.")
-                    logger.info(f"Max size in timeout: {max_size_in_timeout}")
-                    logger.info(f"Expected runtime at that size: {elm.predict_runtime(max_size_in_timeout)}")
-                    logger.info(f"Feasible target: {feasible_target}")
-                    logger.info(f"Setting exponent to {cur_exp}")
-                    logger.info("Disabling max number of evaluations (setting it to 10).")
-                    continue
-                else:
-                    logger.info("This is NOT close enough for full evaluation. Continuing.")
-            else:
-                logger.info("Not enough anchor points yet to get an IPL estimate.")
-    
-        # check whether after-evaluations are necessary
-        slope_ranges = elm.get_slope_ranges()
-        ordered_slopes = np.array(np.argsort([s[1] for s in slope_ranges]))
-        mismatches = np.where(ordered_slopes != np.array(range(len(ordered_slopes))))[0]
-        if len(mismatches) > 0 and not enforce_all_anchor_evaluations:
-            act_exp = cur_exp
-            cur_exp = min_exp + min(mismatches)
-            logger.info("Found mismatches in slope ordering:", ordered_slopes, mismatches, "Initializing reset with exp " + str(cur_exp))
-            logger.info(cur_exp in stable_anchors)
-            logger.info(cur_exp in eval_counter)
-            while cur_exp in stable_anchors or (cur_exp in eval_counter and eval_counter[cur_exp] >= MAX_EVALUATIONS):
-                logger.info("Exp " + str(cur_exp) + " is stable or is in the eval_counter with a high enough value.")
-                cur_exp += 1
-            if cur_exp < act_exp:
-                logger.info("Going back from exp " + str(act_exp) + " to " + str(cur_exp) + ". Stable anchors are " + str(stable_anchors) + ". Eval counter is: " + str(eval_counter) + ". MAX_EVALUATIONS is: " + str(MAX_EVALUATIONS))
-            elif cur_exp > max_exp:
-                cur_exp = max_exp
-                logger.info("Stepping to maximum exponent " + str(cur_exp))
-            else:
-                logger.info("Stepping to exponent " + str(cur_exp))
+        elif not enforce_all_anchor_evaluations and t >= 3 and elm.get_ipl_estimate_at_target(target_anchor) <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION:
+            t = T
+            logger.info(f"Candidate appears to be competitive (predicted performance at {target_anchor} is {elm.get_ipl_estimate_at_target(target_anchor)}. Jumping to last anchor in schedule: {t}")
         else:
-            cur_exp += 1
-            if cur_exp > max_exp:
-                cur_exp = max_exp
+            t += 1
+            logger.info(f"Finished schedule on {s_t}, and t is now {t}. Performance: {elm.get_normal_estimates(s_t, 4)}.")
+            if t < T:
+                estimates = elm.get_normal_estimates()
+                logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]))
+                if t > 2:
+                    logger.debug(f"Estimate for target size {target_anchor}: {elm.get_performance_interval_at_target(target_anchor)[1]}")
     
+    # output final reports
     toc = time.time()
-    logger.info("Estimation process finished, preparing result.")
-    
     estimates = elm.get_normal_estimates()
-    logger.info("Learning Curve Construction Completed. Conditions:\n\tReachable: " + str(reachable) + "\n\tTimeout: " + str(timeouted))
-    logger.info(f"Estimate History: {estimate_history}")
-    logger.info(f"LC: {estimates}")
-    logger.info(f"Runtime: {toc-tic}. Expected runtime on {target_anchor}: {elm.predict_runtime(target_anchor)}")
+    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]))
+    
+    # return result depending on observations and configuration
     if len(estimates) == 0:
         return np.nan, np.nan, [], elm
     elif len(estimates) < 3:
@@ -402,6 +319,6 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
         return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm
     else:
         max_anchor = max([int(k) for k in estimates])
-        target_performance = estimates[max_anchor]["mean"] if cur_exp == max_exp or not return_estimate_on_incomplete_runs else elm.get_ipl_estimate_at_target(target_anchor)
+        target_performance = estimates[max_anchor]["mean"] if t == T or not return_estimate_on_incomplete_runs else elm.get_ipl_estimate_at_target(target_anchor)
         logger.info(f"Target performance: {target_performance}")
         return target_performance, estimates[max_anchor]["mean"], estimates, elm
