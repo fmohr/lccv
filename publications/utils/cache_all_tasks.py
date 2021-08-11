@@ -20,4 +20,4 @@ if __name__ == '__main__':
             task_idx + 1, len(suite.tasks), task_id))
         # automatically stores all relevant info in .cache
         task = openml.tasks.get_task(task_id)
-
+        dataset = openml.datasets.get_dataset(task.dataset_id)
