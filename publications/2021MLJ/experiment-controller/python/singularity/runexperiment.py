@@ -1,4 +1,4 @@
-import sys
+import argparse
 import resource
 from evalutils import *
 from lccv import lccv
@@ -6,17 +6,21 @@ from commons import *
 import logging
 import json
 
-if __name__ == '__main__':
-    
+
+def parse_args():
+    default_path = '~/experiments/lccv/'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset_id', type=int)
+    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv'])
+    parser.add_argument('--seed', type=int)
+    parser.add_argument('--timeout', type=int, default=300)
+    parser.add_argument('--num_pipelines', type=int, default=1000)
+    parser.add_argument('--output_file', type=str, default=os.path.expanduser(default_path))
+    return parser.parse_args()
+
+
+def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
     print("Starting python script")
-    
-    # read params
-    folder = sys.argv[5]
-    openmlid = int(sys.argv[1])
-    algorithm = sys.argv[2]
-    seed = int(sys.argv[3])
-    timeout = int(sys.argv[4])
-    num_pipelines = 1000
     print("Running experiment under folloiwing conditions:")
     print("\tOpenML id:", openmlid)
     print("\tAlgorithm:", algorithm)
@@ -101,3 +105,29 @@ if __name__ == '__main__':
     with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
     print("Experiment ready. Results written to", folder + "/results.txt")
+
+
+def run_experiment_index_based(index: int, algorithm: str, num_pipelines: int, timeout: int):
+    datasets = [
+        1485, 1590, 1515, 1457, 1475, 1468, 1486, 1489, 23512, 23517, 4541,
+        4534, 4538, 4134, 4135, 40978, 40996, 41027, 40981, 40982, 40983, 40984,
+        40701, 40670, 40685, 40900,  1111, 42732, 42733, 42734, 40498, 41161,
+        41162, 41163, 41164, 41165, 41166, 41167, 41168, 41169, 41142, 41143,
+        41144, 41145, 41146, 41147, 41150, 41156, 41157, 41158,  41159, 41138,
+        54, 181, 188, 1461, 1494, 1464, 12, 23, 3, 1487, 40668, 1067, 1049,
+        40975, 31]
+    dataset_id = datasets[int(np.floor(index / 10))]
+    seed = index % 10
+    folder = os.path.expanduser('~/experiments/lccv/%d/%s/%d' % (dataset_id, algorithm, seed))
+    os.makedirs(folder, exist_ok=True)
+    run_experiment(dataset_id, algorithm, num_pipelines, seed, timeout, folder)
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    if args.dataset_id is not None and args.algorithm is not None and args.seed is not None:
+        run_experiment(args.dataset_id, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder)
+    elif args.experiment_idx is not None and args.algorithm is not None:
+        run_experiment_index_based(args.experiment_idx, args.algorithm, args.num_pipelines, args.timeout)
+    else:
+        raise ValueError('Wrong set of arguments provided. ')

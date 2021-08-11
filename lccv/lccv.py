@@ -191,7 +191,39 @@ class EmpiricalLearningModel:
     
 
 def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=5):
-    
+    """
+    Evaluates a learner in an iterative fashion, using learning curves. The
+    method builds upon the assumption that learning curves are convex. After
+    each iteration, it checks whether the convexity assumption is still valid.
+    If not, it tries to repair it.
+    Also, after each iteration it checks whether the performance of the best
+    seen learner so far is still reachable by making an optimistic extrapolation.
+    If not, it stops the evaluation.
+
+    :param learner_inst: The learner to be evaluated
+    :param X: The features on which the learner needs to be evaluated
+    :param y: The labels on which the learner needs to be trained
+    :param r: The best seen performance so far (lower is better). Fill in 0.0 if
+    no learners have been evaluated prior to the learner.
+    :param timeout: The maximal runtime for this specific leaner. Fill in None
+    to avoid cutting of the evaluation.
+    :param base: The base factor to increase the sample sizes of the learning
+    curve.
+    :param min_exp: The first exponent of the learning curve.
+    :param MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION: The maximum number of
+    evaluations to be performed
+    :param MAX_EVALUATIONS:
+    :param target_anchor:
+    :param return_estimate_on_incomplete_runs:
+    :param max_conf_interval_size_default:
+    :param max_conf_interval_size_target:
+    :param enforce_all_anchor_evaluations:
+    :param seed:
+    :param verbose:
+    :param logger:
+    :param min_evals_for_stability:
+    :return:
+    """
     # create standard logger if none is given
     if logger is None:
         logger = logging.getLogger('lccv')
