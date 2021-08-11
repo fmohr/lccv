@@ -26,11 +26,32 @@ lccv_logger.addHandler(ch)
 
 class TestLccv(unittest.TestCase):
 
+    def setUp(self):
+        # setup logger for this test suite
+        self.logger = logging.getLogger('lccv_test')
+        self.logger.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
+
+        # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
+        self.lccv_logger = logging.getLogger("lccv")
+        self.lccv_logger.setLevel(logging.WARN)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        self.lccv_logger.addHandler(ch)
+
     def test_partition_train_test_data(self):
-        logger.info("Start Test on Partitioning")
+        self.logger.info("Start Test on Partitioning")
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         for seed in [0, 1, 2, 3, 4, 5]:
-            logger.info(f"Run test for seed {seed}")
+            self.logger.info(f"Run test for seed {seed}")
             n_te = 32
             n_tr = 150 - n_te
             f_tr, l_tr, f_te, l_te = lccv._partition_train_test_data(
@@ -47,44 +68,44 @@ class TestLccv(unittest.TestCase):
             np.testing.assert_array_equal(l_te, l_te2)
             np.testing.assert_array_equal(f_tr, f_tr2)
             np.testing.assert_array_equal(l_tr, l_tr2)
-            logger.info(f"Finished test for seed {seed}")
+            self.logger.info(f"Finished test for seed {seed}")
 
     def test_lccv_normal_function(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
-        logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, base=2, min_exp=4, enforce_all_anchor_evaluations=True)
+        self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+        _, _, res, _ = lccv.lccv(learner, features, labels, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
         for key, val in res.items():
-            logger.info(f"Key: {key}, Val: {val}")
+            self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
-        logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+        self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
 
     def test_lccv_all_points_finish(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
-        logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=True)
+        self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
         for key, val in res.items():
-            logger.info(f"Key: {key}, Val: {val}")
+            self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
-        logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+        self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
         
     def test_lccv_all_points_skipped(self):
         return
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
-        logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=False)
+        self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=False, logger=self.lccv_logger)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 135})
         for key, val in res.items():
-            logger.info(f"Key: {key}, Val: {val}")
+            self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
-        logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+        self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
         
     def test_lccv_pruning(self):
         features, labels = sklearn.datasets.load_digits(return_X_y=True)
@@ -93,10 +114,8 @@ class TestLccv(unittest.TestCase):
         _, _, res, _ = lccv.lccv(learner, features, labels, r=-0.5, base=2, min_exp=4, enforce_all_anchor_evaluations=True)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 256, 512})
         for key, val in res.items():
-            logger.info(f"Key: {key}, Val: {val}")
+            self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
-        logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+        self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
             
-if __name__ == '__main__':
-    unittest.main()
