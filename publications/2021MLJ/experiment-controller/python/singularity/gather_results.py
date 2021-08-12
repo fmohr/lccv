@@ -18,7 +18,7 @@ def run(directory):
             algorithm_dir = os.path.join(directory, dataset_id, algorithm_name)
             print('-- algorithm dir:', algorithm_dir)
             for seed in os.listdir(algorithm_dir):
-                file = os.path.join(directory, dataset_id, seed, 'results.txt')
+                file = os.path.join(directory, dataset_id, algorithm_name, seed, 'results.txt')
                 print('-- file:', file)
 
                 if os.path.isfile(file):
