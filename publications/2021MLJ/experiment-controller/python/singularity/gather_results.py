@@ -12,9 +12,15 @@ def parse_args():
 def run(directory):
     count = 0
     for dataset_id in os.listdir(directory):
-        for algorithm_name in os.listdir(os.path.join(directory, dataset_id)):
-            for seed in os.listdir(os.path.join(directory, dataset_id, algorithm_name)):
+        dataset_dir = os.path.join(directory, dataset_id)
+        print('- dataset dir:', dataset_id)
+        for algorithm_name in os.listdir(dataset_dir):
+            algorithm_dir = os.path.join(directory, dataset_id, algorithm_name)
+            print('-- algorithm dir:', algorithm_dir)
+            for seed in os.listdir(algorithm_dir):
                 file = os.path.join(directory, dataset_id, seed, 'results.txt')
+                print('-- file:', file)
+
                 if os.path.isfile(file):
                     print(file)
                     count += 1
