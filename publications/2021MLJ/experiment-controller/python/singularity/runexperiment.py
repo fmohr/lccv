@@ -22,6 +22,7 @@ def parse_args():
 
 
 def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
+    # TODO: built in check whether file already exists, in that case we can skipp
     print("Starting python script")
     print("Running experiment under folloiwing conditions:")
     print("\tOpenML id:", openmlid)
