@@ -138,7 +138,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")
 
 
-def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_pipelines: int, timeout: int):
+def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_pipelines: int, timeout: int, prob_dp: float, prob_fp: float):
     datasets = [
         1485, 1590, 1515, 1457, 1475, 1468, 1486, 1489, 23512, 23517, 4541,
         4534, 4538, 4134, 4135, 40978, 40996, 41027, 40981, 40982, 40983, 40984,
@@ -151,7 +151,7 @@ def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_p
     seed = index % num_seeds
     folder = os.path.expanduser('~/experiments/lccv/%d/%s/%d' % (dataset_id, algorithm, seed))
     os.makedirs(folder, exist_ok=True)
-    run_experiment(dataset_id, algorithm, num_pipelines, seed, timeout, folder)
+    run_experiment(dataset_id, algorithm, num_pipelines, seed, timeout, folder, prob_dp, prob_fp)
 
 
 if __name__ == '__main__':
@@ -159,6 +159,6 @@ if __name__ == '__main__':
     if args.dataset_id is not None and args.algorithm is not None and args.seed is not None:
         run_experiment(args.dataset_id, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp)
     elif args.experiment_idx is not None and args.num_seeds is not None and args.algorithm is not None:
-        run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout)
+        run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout, args.prob_dp, args.prob_fp)
     else:
         raise ValueError('Wrong set of arguments provided. ')
