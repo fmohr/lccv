@@ -18,10 +18,12 @@ def parse_args():
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--num_pipelines', type=int, default=1000)
     parser.add_argument('--folder', type=str, default=os.path.expanduser(default_path))
+    parser.add_argument('--prob_dp', type=float, default=0.5)
+    parser.add_argument('--prob_fp', type=float, default=0.5)
     return parser.parse_args()
 
 
-def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
+def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str, prob_dp: float, prob_fp: float):
     # TODO: built in check whether file already exists, in that case we can skipp
     
     # CPU
@@ -66,7 +68,10 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     Algorithm: {algorithm}
     Seed: {seed}
     timeout (per single evaluation):  {timeout}
-    Num Pipelines: {num_pipelines}""")
+    Num Pipelines: {num_pipelines}
+    Probability to draw a data-preprocessor: {prob_dp}
+    Probability to draw a feature-preprocessor: {prob_fp}
+    """)
     
     # CPU
     exp_logger.info("CPU Settings:")
@@ -90,7 +95,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
         return lccv(learner_inst, X, y, r = 1.0, eps = 0, timeout=timeout, base = 2, min_exp = np.log(int(np.floor(X.shape[0] * 0.9))) / np.log(2), MAX_EVALUATIONS = 10, seed=seed, enforce_all_anchor_evaluations=False, verbose=True)
     
     # creating learner sequence
-    sampler = PipelineSampler("searchspace.json", X, y, seed, dp_proba = .5, fp_proba = .5)
+    sampler = PipelineSampler("searchspace.json", X, y, seed, dp_proba = prob_dp, fp_proba = prob_fp)
     test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
@@ -152,7 +157,7 @@ def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_p
 if __name__ == '__main__':
     args = parse_args()
     if args.dataset_id is not None and args.algorithm is not None and args.seed is not None:
-        run_experiment(args.dataset_id, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder)
+        run_experiment(args.dataset_id, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp)
     elif args.experiment_idx is not None and args.num_seeds is not None and args.algorithm is not None:
         run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout)
     else:
