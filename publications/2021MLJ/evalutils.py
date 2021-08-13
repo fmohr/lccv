@@ -20,6 +20,8 @@ from sklearn import *
 
 from func_timeout import func_timeout, FunctionTimedOut
 
+eval_logger = logging.getLogger("evalutils")
+
 def get_dataset(openmlid):
     """
     Reads in a dataset from openml.org via the ID, returning a matrix X and a label vector y.
@@ -39,15 +41,15 @@ def get_dataset(openmlid):
     if expansion_size < 10**5:
         X = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]]).values.astype(float)
     else:
-        print("creating SPARSE data")
+        eval_logger.info("creating SPARSE data")
         dfSparse = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]], sparse=True)
         
-        print("dummies created, now creating sparse matrix")
+        eval_logger.info("dummies created, now creating sparse matrix")
         X = lil_matrix(dfSparse.shape, dtype=np.float32)
         for i, col in enumerate(dfSparse.columns):
             ix = dfSparse[col] != 0
             X[np.where(ix), i] = 1
-        print("Done. shape is" + str(X.shape))
+        eval_logger.info("Done. shape is" + str(X.shape))
     return X, y
 
 
@@ -58,29 +60,33 @@ def cv5(learner_inst, X, y, timeout=None, seed=None, r=None):
     return cv(learner_inst, X, y, 5, timeout, seed)
     
 def cv(learner_inst, X, y, folds, timeout, seed):
-    deadline = None if timeout is None else time.time() + timeout
-    kf = sklearn.model_selection.KFold(n_splits=10, random_state=np.random.RandomState(seed), shuffle=True)
+    kf = sklearn.model_selection.KFold(n_splits=folds, random_state=np.random.RandomState(seed), shuffle=True)
     scores = []
     for train_index, test_index in kf.split(X):
+        learner_inst_copy = sklearn.base.clone(learner_inst)
         X_train, y_train = X[train_index], y[train_index]
         X_test, y_test = X[test_index], y[test_index]
-        if deadline is None:
-            learner_inst.fit(X_train, y_train)
-        else:
-            try:
-                func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
-                y_hat = learner_inst.predict(X_test)
-                error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-                scores.append(error_rate)
-            except FunctionTimedOut:
-                print(f"Timeout observed for 10CV, stopping and using avg of {len(scores)} folds.")
-                break
-            except KeyboardInterrupt:
-                raise
-            except:
-                print("Observed some exception. Stopping")
-                break
-    return np.mean(scores) if scores else np.nan
+        try:
+            eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and timeout {timeout}.")
+            if timeout is None:
+                learner_inst_copy.fit(X_train, y_train)
+            else:            
+                func_timeout(timeout, learner_inst_copy.fit, (X_train, y_train))
+                
+            y_hat = learner_inst_copy.predict(X_test)
+            error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+            scores.append(error_rate)
+        except FunctionTimedOut:
+            eval_logger.info(f"Timeout observed for {folds}CV, stopping and using avg of {len(scores)} folds.")
+            break
+        except KeyboardInterrupt:
+            raise
+        except:
+            eval_logger.info("Observed some exception. Stopping")
+            break
+    out = np.mean(scores) if scores else np.nan
+    eval_logger.info(f"Returning {out} as the avg over observed scores {scores}")
+    return out
 
 def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train size is 90% of the data (like for 10CV)
     try:
@@ -88,7 +94,7 @@ def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train 
     except KeyboardInterrupt:
         raise
     except:
-        print("Observed some exception. Returning nan")
+        eval_logger.info("Observed some exception. Returning nan")
         return (np.nan,)
 
 def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train size is 80% of the data (like for 5CV)
@@ -98,7 +104,7 @@ def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train 
     except KeyboardInterrupt:
         raise
     except:
-        print("Observed some exception. Returning nan")
+        eval_logger.info("Observed some exception. Returning nan")
         return (np.nan,)
 
 def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0, repeats = 10):
@@ -117,8 +123,7 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
         X_test = X[mask_test]
         y_test = y[mask_test]
 
-        if verbose:
-            print("Training " + str(learner_inst) + " on data of shape " + str(X_train.shape) + " using seed " + str(seed))
+        eval_logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape} using seed {seed}.")
         if deadline is None:
             learner_inst.fit(X_train, y_train)
         else:
@@ -127,14 +132,13 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
 
         y_hat = learner_inst.predict(X_test)
         error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-        if verbose:
-            print("Training ready. Obtaining predictions for " + str(X_test.shape[0]) + " instances. Error rate of model on " + str(len(y_hat)) + " instances is " + str(error_rate))
+        eval_logger.info(f"Training ready. Obtaining predictions for {X_test.shape[0]} instances. Error rate of model on {len(y_hat)} instances is {error_rate}")
         return error_rate
     
     """
     Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
     """
-    print("Running mccv with seed " + str(seed))
+    eval_logger.info(f"Running mccv with seed  {seed}")
     train_size = 0.9
     if not timeout is None:
         deadline = time.time() + timeout
@@ -145,7 +149,7 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
     
     seed *= 13
     for r in range(repeats):
-        print("Seed in MCCV:",seed)
+        eval_logger.info(f"Seed in MCCV: {seed}")
         if timeout is None:
             scores.append(evaluate(learner, X, y, num_examples, seed))
         else:
@@ -160,10 +164,16 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
                 break
                 
             except:
-                print("AN ERROR OCCURRED, not counting this run!")
+                eval_logger.info("AN ERROR OCCURRED, not counting this run!")
         seed += 1
 
     return np.mean(scores) if len(scores) > 0 else np.nan, scores
+
+def format_learner(learner):
+    learner_name = str(learner).replace("\n", " ").replace("\t", " ")
+    for k in  range(20):
+        learner_name = learner_name.replace("  ", " ")
+    return learner_name
 
 def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
     validation_func = validation[0]
@@ -177,10 +187,9 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     exp_logger = logging.getLogger("experimenter")
     n = len(learners)
     for i, learner in enumerate(learners):
-        learner_name = str(learner).replace("\n", " ")
         exp_logger.info(f"""
             --------------------------------------------------
-            Checking learner {i + 1}/{n} ({learner_name})
+            Checking learner {i + 1}/{n} ({format_learner(learner)})
             --------------------------------------------------""")
         exp_logger.info(f"Currently used memory: {int(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024)}MB")
         try:
@@ -189,24 +198,25 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
             score = validation_result_extractor(validation_func(temp_pipe, X, y, r = r, timeout=timeout_per_evaluation, seed=13 *seed + i))
             runtime = time.time() - validation_start
             validation_times.append(runtime)
-            print(f"Observed score {score} for {temp_pipe}. Validation took {int(np.round(runtime * 1000))}ms")
+            eval_logger.info(f"Observed score {score} for {format_learner(temp_pipe)}. Validation took {int(np.round(runtime * 1000))}ms")
             r = min(r, score + epsilon)
-            print("r is now:", r)
+            eval_logger.info(f"r is now: {r}")
             if score < best_score:
                 best_score = score
                 chosen_learner = temp_pipe
+                eval_logger.info(f"Thas was a NEW BEST score. r has been updated. In other words, currently chosen model is {format_learner(chosen_learner)}")
             else:
                 del temp_pipe
                 gc.collect()
 
         except KeyboardInterrupt:
-            print("Interrupted, stopping")
+            eval_logger.warning("Interrupted, stopping")
             break
         except:
             if True or exception_on_failure:
                 raise
             else:
-                print("COULD NOT TRAIN " + str(learner) + " on dataset of shape " + str(X.shape) + ". Aborting.")
+                eval_logger.warning(f"COULD NOT TRAIN {learner} on dataset of shape {X.shape}. Aborting.")
     return chosen_learner, validation_times
 
 def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, seed=0, repeats=10):
@@ -214,14 +224,14 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
     performances = {}
     for validator, result_parser in validators:
         
-        print(f"""
+        eval_logger.info(f"""
         -------------------------------
         {validator.__name__} (with seed {seed})
         -------------------------------""")
         time_start = time.time()
         chosen_learner = select_model((validator, result_parser), learners, X, y, timeout_per_evaluation, epsilon, seed=seed)[0]
         runtime = int(np.round(time.time() - time_start))
-        print("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
+        eval_logger.info("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
         if chosen_learner is None:
             out[validator.__name__] = ("n/a", runtime, np.nan)
         else:

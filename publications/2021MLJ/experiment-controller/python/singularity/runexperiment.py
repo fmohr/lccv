@@ -22,24 +22,6 @@ def parse_args():
 
 
 def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
-    print("Starting python script")
-    print("Running experiment under folloiwing conditions:")
-    print("\tOpenML id:", openmlid)
-    print("\tAlgorithm:", algorithm)
-    print("\tSeed:", seed)
-    print("\ttimeout (per single evaluation):", timeout)
-    print("\tNum Pipelines:", num_pipelines)
-    
-    # CPU
-    print("CPU Settings:")
-    for v in ["OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "BLIS_NUM_THREADS"]:
-        print(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
-        
-    # memory limits
-    memory_limit = 14 * 1024
-    print("Setting memory limit to " + str(memory_limit) + "MB")
-    soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
-    resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
     
     # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
     lccv_logger = logging.getLogger("lccv")
@@ -58,10 +40,39 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     ch.setFormatter(formatter)
     exp_logger.addHandler(ch)
     
+    eval_logger = logging.getLogger("evalutils")
+    eval_logger.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    eval_logger.addHandler(ch)
+    
+    exp_logger.info("Starting python script")
+    exp_logger.info("Running experiment under folloiwing conditions:")
+    exp_logger.info("\tOpenML id:", openmlid)
+    exp_logger.info("\tAlgorithm:", algorithm)
+    exp_logger.info("\tSeed:", seed)
+    exp_logger.info("\ttimeout (per single evaluation):", timeout)
+    exp_logger.info("\tNum Pipelines:", num_pipelines)
+    
+    # CPU
+    exp_logger.info("CPU Settings:")
+    for v in ["OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "BLIS_NUM_THREADS"]:
+        exp_logger.info(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
+        
+    # memory limits
+    memory_limit = 14 * 1024
+    exp_logger.info("Setting memory limit to " + str(memory_limit) + "MB")
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
+    resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
+    
+
+    
     # load data
-    print("Reading dataset")
+    exp_logger.info("Reading dataset")
     X, y = get_dataset(openmlid)
-    print("ready. Now running the algorithm")
+    exp_logger.info("ready. Now running the algorithm")
     
     def mccv_adaptive(learner_inst, X, y, timeout, seed=0, r=None):
         return lccv(learner_inst, X, y, r = 1.0, eps = 0, timeout=timeout, base = 2, min_exp = np.log(int(np.floor(X.shape[0] * 0.9))) / np.log(2), MAX_EVALUATIONS = 10, seed=seed, enforce_all_anchor_evaluations=False, verbose=True)
@@ -69,7 +80,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     # creating learner sequence
     sampler = PipelineSampler("searchspace.json", X, y, seed, dp_proba = .5, fp_proba = .5)
     test_learners = [sampler.sample() for i in range(num_pipelines)]
-    print("Evaluating portfolio of " + str(len(test_learners)) + " learners.")
+    exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
     # run lccv
     epsilon = 0.0
@@ -93,12 +104,13 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     if model is not None:
         error_rate = np.round(result[2][0], 4)
         model_name = str(model).replace("\n", " ")
-        print("Model:", model)
-        print("Error Rate:", error_rate)
-        print("Runtime:",runtime)
-        print("Results in final evaluation:", np.round(result[2][1], 4))
+        exp_logger.info(f"""Run completed. Here are the details:
+            Model: {model}
+            Error Rate: {error_rate}
+            Runtime: {runtime}
+            Results in final evaluation: {np.round(result[2][1], 4)}""")
     else:
-        print("No model was chosen. Assigning maximum error rate")
+        exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
         model_name = "None"
     
@@ -106,7 +118,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     output = (model_name, error_rate, runtime)
     with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
-    print("Experiment ready. Results written to", folder + "/results.txt")
+    exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")
 
 
 def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_pipelines: int, timeout: int):

@@ -8,6 +8,11 @@ import time
 import sklearn.metrics
 import func_timeout
 
+def format_learner(learner):
+    learner_name = str(learner).replace("\n", " ").replace("\t", " ")
+    for k in  range(20):
+        learner_name = learner_name.replace("  ", " ")
+    return learner_name
 
 def _partition_train_test_data(
         features: np.array, labels: np.array, n_test: int,
@@ -41,23 +46,31 @@ class EmpiricalLearningModel:
         self.learner = learner
         self.X_train, self.y_train, self.X_test, self.y_test = _partition_train_test_data(X, y, n_test, seed)
         self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate", "runtime"])
+        
+        # set up logger
         self.logger = logging.getLogger('elm')
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.info(f"Train labels: \n{self.y_train}")
+        self.logger.info(f"Test labels: \n{self.y_test}")
 
     def evaluate(self, learner_inst, size, timeout, verbose):
-        deadline = None if timeout is None else time.time() + timeout
+
+        self.logger.debug("Computing trainning data")
         indices = np.random.choice(self.X_train.shape[0], size, replace=False)
-
-        self.logger.info("Training " + str(learner_inst) + " on data of shape " + str(self.X_train.shape))
-        if deadline is None:
-            learner_inst.fit(self.X_train[indices], self.y_train[indices])
+        X_train = self.X_train[indices].copy() # these copy actions could maybe be inefficient but are currently required to be stable w.r.t. the copy=false option for some pre-processors
+        y_train = self.y_train[indices].copy()
+        
+        self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {self.X_train.shape}. Timeout is {timeout}")
+        start = time.time()
+        if timeout is None:
+            learner_inst.fit(X_train, y_train)
         else:
-            func_timeout.func_timeout(deadline - time.time(), learner_inst.fit,
-                                      (self.X_train[indices], self.y_train[indices]))
-
-        y_hat = learner_inst.predict(self.X_test)
+            func_timeout.func_timeout(timeout, learner_inst.fit, (X_train, y_train))
+        end = time.time()
+        self.logger.debug(f"Training ready after {int((end - start) * 1000)}ms. Now obtaining predictions.")
+        y_hat = learner_inst.predict(self.X_test.copy())
         error_rate = 1 - sklearn.metrics.accuracy_score(self.y_test, y_hat)
-        self.logger.info("Training ready. Obtaining predictions for " + str(self.X_test.shape[0]) + " instances. Error rate of model on " + str(y_hat.shape[0]) + " instances is " + str(error_rate))
+        end = time.time()
+        self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate}.")
         return error_rate
     
     def compute_and_add_sample(
@@ -68,8 +81,9 @@ class EmpiricalLearningModel:
             sklearn.base.clone(self.learner), size,
             timeout / 1000 if timeout is not None else None, verbose)
         toc = time.time()
-        self.df.loc[len(self.df)] = [
-            size, seed, error_rate, int(np.round(1000 * (toc-tic)))]
+        runtime = int(np.round(1000 * (toc-tic)))
+        self.logger.debug(f"Sample value computed within {runtime}ms")
+        self.df.loc[len(self.df)] = [size, seed, error_rate, runtime]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
     
     def get_values_at_anchor(self, anchor):
@@ -190,7 +204,7 @@ class EmpiricalLearningModel:
         return -b/(2 * a) + np.sqrt(inner)
     
 
-def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=5):
+def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3):
     """
     Evaluates a learner in an iterative fashion, using learning curves. The
     method builds upon the assumption that learning curves are convex. After
@@ -233,8 +247,9 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     deadline = tic + timeout if timeout is not None else None
 
     # configure the exponents and status variables
-    if target_anchor is None:
-        target_anchor = int(np.floor(X.shape[0] * 0.9))
+    if target_anchor < 1:
+        target_anchor = int(np.floor(X.shape[0] * target_anchor))
+    
     
     
     # initialize important variables and datastructures
@@ -247,7 +262,9 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     repair_convexity = False
     
     # announce start event together with state variable values
-    logger.info(f"""Running LCCV on {X.shape}-shaped data for learner {learner_inst} with r = {r}. Overview:
+    logger.info(f"""Running LCCV on {X.shape}-shaped data. Overview:
+    learner: {format_learner(learner_inst)}
+    r: {r}
     min_exp: {min_exp}
     max_exp: {max_exp}
     Seed is {seed}
@@ -261,7 +278,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
         eps = max_conf_interval_size_target if t == T else max_conf_interval_size_default
         s_t = schedule[t]
         num_evaluations_at_t = len(elm.get_values_at_anchor(s_t))
-        logger.debug(f"Running iteration for t = {t}. Anchor point s_t is {s_t}")
+        logger.info(f"Running iteration for t = {t}. Anchor point s_t is {s_t}")
         
         ## INNER LOOP: acquire observations at anchor until stability is reached, or just a single one to repair convexity
         while repair_convexity or num_evaluations_at_t < min_evals_for_stability or (elm.get_conf_interval_size_at_target(s_t) > eps and num_evaluations_at_t < MAX_EVALUATIONS):
@@ -301,6 +318,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             t -= 1
             logger.debug(f"Convexity needs to be repaired, stepping back. t is now {t}")
         elif t >= 2 and elm.get_performance_interval_at_target(target_anchor)[1] >= r:
+            optimistic_estimate_for_target_performance = elm.get_performance_interval_at_target(target_anchor)[1]
             
             # prepare data for cut-off summary
             pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
@@ -314,7 +332,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             last_conf = normal_estimates_last["conf"]
             
             # inform about cut-off
-            logger.info("Impossibly reachable, stopping and returning nan.")
+            logger.info(f"Impossibly reachable. Best possible score by bound is {optimistic_estimate_for_target_performance}. Stopping after anchor s_t = {s_t} and returning nan.")
             logger.debug(f"""Details about stop:
             Data:
             {elm.df}
