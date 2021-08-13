@@ -23,13 +23,6 @@ def parse_args():
 
 def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
     # TODO: built in check whether file already exists, in that case we can skipp
-    print("Starting python script")
-    print("Running experiment under folloiwing conditions:")
-    print("\tOpenML id:", openmlid)
-    print("\tAlgorithm:", algorithm)
-    print("\tSeed:", seed)
-    print("\ttimeout (per single evaluation):", timeout)
-    print("\tNum Pipelines:", num_pipelines)
     
     # CPU
     print("CPU Settings:")
@@ -68,12 +61,12 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     eval_logger.addHandler(ch)
     
     exp_logger.info("Starting python script")
-    exp_logger.info("Running experiment under folloiwing conditions:")
-    exp_logger.info("\tOpenML id:", openmlid)
-    exp_logger.info("\tAlgorithm:", algorithm)
-    exp_logger.info("\tSeed:", seed)
-    exp_logger.info("\ttimeout (per single evaluation):", timeout)
-    exp_logger.info("\tNum Pipelines:", num_pipelines)
+    exp_logger.info(f"""Running experiment under following conditions:
+    OpenML id: {openmlid}
+    Algorithm: {algorithm}
+    Seed: {seed}
+    timeout (per single evaluation):  {timeout}
+    Num Pipelines: {num_pipelines}""")
     
     # CPU
     exp_logger.info("CPU Settings:")
