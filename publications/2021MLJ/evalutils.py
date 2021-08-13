@@ -19,6 +19,7 @@ from sklearn import metrics
 from sklearn import *
 
 from func_timeout import func_timeout, FunctionTimedOut
+from commons import *
 
 eval_logger = logging.getLogger("evalutils")
 
@@ -186,15 +187,18 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     validation_times = []
     exp_logger = logging.getLogger("experimenter")
     n = len(learners)
+    memory_history = []
     for i, learner in enumerate(learners):
         exp_logger.info(f"""
             --------------------------------------------------
             Checking learner {i + 1}/{n} ({format_learner(learner)})
             --------------------------------------------------""")
-        exp_logger.info(f"Currently used memory: {int(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024)}MB")
+        cur_mem = int(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024)
+        memory_history.append(cur_mem)
+        exp_logger.info(f"Currently used memory: {cur_mem}MB. Memory history is: {memory_history}")
         try:
             validation_start = time.time()
-            temp_pipe = clone(learner)
+            temp_pipe = sklearn.pipeline.Pipeline([(step_name, build_estimator(comp, params, X, y)) for step_name, (comp, params) in learner])
             score = validation_result_extractor(validation_func(temp_pipe, X, y, r = r, timeout=timeout_per_evaluation, seed=13 *seed + i))
             runtime = time.time() - validation_start
             validation_times.append(runtime)

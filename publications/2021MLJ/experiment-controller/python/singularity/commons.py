@@ -719,7 +719,7 @@ class PipelineSampler:
                 comp_descriptions[comp["class"]] = {"params": params, "weight": get_factor_of_parameter_space(params)}
             self.search_space.append(comp_descriptions)
         
-    def sample_configured_algorithm(self, slot):
+    def sample_configured_algorithm(self, slot, do_build = True):
         classes = list(self.search_space[slot].keys())
         weights = np.log(1 + np.array([self.search_space[slot][clazz]["weight"] for clazz in classes]))
         probabilities = weights / sum(weights)
@@ -736,22 +736,22 @@ class PipelineSampler:
                 for hp in config_space.get_hyperparameters():
                     if hp.name in sampled_config:
                         params[hp.name] = sampled_config[hp.name]
-                return build_estimator(comp, params, self.X, self.y)
+                return build_estimator(comp, params, self.X, self.y) if do_build else (comp, params)
     
     ''' Samples a pipeline according to the weights
     '''
-    def sample(self):
+    def sample(self, do_build=True):
         
         steps = []
         
         # sample a data pre-processor?
         if self.rs.rand() <= self.dp_proba:
-            steps.append(("data-pre-processor", self.sample_configured_algorithm(0)))
+            steps.append(("data-pre-processor", self.sample_configured_algorithm(0, do_build)))
             
         # sample a feature pre-processor?
         if self.rs.rand() <= self.dp_proba:
-            steps.append(("feature-pre-processor", self.sample_configured_algorithm(1)))
+            steps.append(("feature-pre-processor", self.sample_configured_algorithm(1, do_build)))
         
         # now sample a predictor
-        steps.append(("predictor", self.sample_configured_algorithm(2)))
-        return sklearn.pipeline.Pipeline(steps)
+        steps.append(("predictor", self.sample_configured_algorithm(2, do_build)))
+        return sklearn.pipeline.Pipeline(steps) if do_build else steps

@@ -98,7 +98,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     
     # creating learner sequence
     sampler = PipelineSampler("searchspace.json", X, y, seed, dp_proba = .5, fp_proba = .5)
-    test_learners = [sampler.sample() for i in range(num_pipelines)]
+    test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
     # run lccv
