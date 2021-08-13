@@ -91,7 +91,7 @@ def cv(learner_inst, X, y, folds, timeout, seed):
 
 def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train size is 90% of the data (like for 10CV)
     try:
-        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed)
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10)
     except KeyboardInterrupt:
         raise
     except:
@@ -99,9 +99,8 @@ def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train 
         return (np.nan,)
 
 def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train size is 80% of the data (like for 5CV)
-    target_anchor = int(np.floor(X.shape[0] * 0.8))
     try:
-        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=target_anchor)
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5)
     except KeyboardInterrupt:
         raise
     except:
