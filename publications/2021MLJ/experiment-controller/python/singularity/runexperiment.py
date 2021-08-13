@@ -22,6 +22,25 @@ def parse_args():
 
 
 def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str):
+    # TODO: built in check whether file already exists, in that case we can skipp
+    print("Starting python script")
+    print("Running experiment under folloiwing conditions:")
+    print("\tOpenML id:", openmlid)
+    print("\tAlgorithm:", algorithm)
+    print("\tSeed:", seed)
+    print("\ttimeout (per single evaluation):", timeout)
+    print("\tNum Pipelines:", num_pipelines)
+    
+    # CPU
+    print("CPU Settings:")
+    for v in ["OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "BLIS_NUM_THREADS"]:
+        print(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
+        
+    # memory limits
+    memory_limit = 14 * 1024
+    print("Setting memory limit to " + str(memory_limit) + "MB")
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
+    resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
     
     # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
     lccv_logger = logging.getLogger("lccv")
