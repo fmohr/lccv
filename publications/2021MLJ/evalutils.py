@@ -107,7 +107,7 @@ def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train 
         eval_logger.info("Observed some exception. Returning nan")
         return (np.nan,)
 
-def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None, seed=0, repeats = 10):
+def mccv(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=None, seed=0, repeats = 10):
     
     def evaluate(learner_inst, X, y, num_examples, seed=0, timeout = None, verbose=False):
         deadline = None if timeout is None else time.time() + timeout
@@ -118,10 +118,11 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
         mask_train[indices_train] = 1
         mask_train = mask_train.astype(bool)
         mask_test = (1 - mask_train).astype(bool)
-        X_train = X[mask_train]
+        X_train = X[mask_train].copy()
         y_train = y[mask_train]
-        X_test = X[mask_test]
+        X_test = X[mask_test].copy()
         y_test = y[mask_test]
+        learner_inst = sklearn.base.clone(learner_inst)
 
         eval_logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape} using seed {seed}.")
         if deadline is None:
@@ -139,17 +140,16 @@ def mccv(learner, X, y, target_size=None, r = 0.0, min_stages = 3, timeout=None,
     Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
     """
     eval_logger.info(f"Running mccv with seed  {seed}")
-    train_size = 0.9
     if not timeout is None:
         deadline = time.time() + timeout
     
     scores = []
     n = X.shape[0]
-    num_examples = int(train_size * n)
+    num_examples = int(target_size * n)
     
     seed *= 13
     for r in range(repeats):
-        eval_logger.info(f"Seed in MCCV: {seed}")
+        eval_logger.info(f"Seed in MCCV: {seed}. Training on {num_examples} examples. That is {np.round(100 * num_examples / len(X))}% of the data (testing on rest).")
         if timeout is None:
             scores.append(evaluate(learner, X, y, num_examples, seed))
         else:
@@ -239,6 +239,13 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
             out[validator.__name__] = ("n/a", runtime, np.nan)
         else:
             if not str(chosen_learner.steps) in performances:
-                performances[str(chosen_learner.steps)] = mccv(chosen_learner, X, y, repeats=repeats, seed=4711)
+                if validator.__name__ in ["cv5", "lccv80"]:
+                    target_size = .8
+                elif validator.__name__ in ["cv10", "lccv90"]:
+                    target_size = .9
+                else:
+                    raise Exception(f"Invalid validator function {validator.__name__}")
+                eval_logger.info(f"Appplying target size {target_size}")
+                performances[str(chosen_learner.steps)] = mccv(chosen_learner, X, y, target_size = target_size, repeats=repeats, seed=4711)
             out[validator.__name__] = (chosen_learner.steps, runtime, performances[str(chosen_learner.steps)])
     return out
