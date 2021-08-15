@@ -149,7 +149,7 @@ def mccv(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=None, s
     
     seed *= 13
     for r in range(repeats):
-        eval_logger.info(f"Seed in MCCV: {seed}. Training on {num_examples} examples. That is {np.round(100 * num_examples / len(X))}% of the data (testing on rest).")
+        eval_logger.info(f"Seed in MCCV: {seed}. Training on {num_examples} examples. That is {np.round(100 * num_examples / X.shape[0])}% of the data (testing on rest).")
         if timeout is None:
             scores.append(evaluate(learner, X, y, num_examples, seed))
         else:
