@@ -91,7 +91,8 @@ def cv(learner_inst, X, y, folds, timeout, seed):
 
 def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train size is 90% of the data (like for 10CV)
     try:
-        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10)
+        enforce_all_anchor_evaluations = r == 1
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=True)
     except KeyboardInterrupt:
         raise
     except:
@@ -100,7 +101,28 @@ def lccv90(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train 
 
 def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train size is 80% of the data (like for 5CV)
     try:
-        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5)
+        enforce_all_anchor_evaluations = r == 1
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=True)
+    except KeyboardInterrupt:
+        raise
+    except:
+        eval_logger.info("Observed some exception. Returning nan")
+        return (np.nan,)
+    
+def lccv90flex(learner_inst, X, y, r=1.0, timeout=None, seed=None): # maximum train size is 90% of the data (like for 10CV)
+    try:
+        enforce_all_anchor_evaluations = r == 1
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False)
+    except KeyboardInterrupt:
+        raise
+    except:
+        eval_logger.info("Observed some exception. Returning nan")
+        return (np.nan,)
+
+def lccv80flex(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train size is 80% of the data (like for 5CV)
+    try:
+        enforce_all_anchor_evaluations = r == 1
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False)
     except KeyboardInterrupt:
         raise
     except:
@@ -239,9 +261,9 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
             out[validator.__name__] = ("n/a", runtime, np.nan)
         else:
             if not str(chosen_learner.steps) in performances:
-                if validator.__name__ in ["cv5", "lccv80"]:
+                if validator.__name__ in ["cv5", "lccv80", "lccv80flex"]:
                     target_size = .8
-                elif validator.__name__ in ["cv10", "lccv90"]:
+                elif validator.__name__ in ["cv10", "lccv90", "lccv90flex"]:
                     target_size = .9
                 else:
                     raise Exception(f"Invalid validator function {validator.__name__}")
