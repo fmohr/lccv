@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('--experiment_idx', type=int)
     parser.add_argument('--num_seeds', type=int)
     parser.add_argument('--dataset_id', type=int)
-    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv'])
+    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv', '80lccv-flex', '90lccv-flex'])
     parser.add_argument('--seed', type=int)
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--num_pipelines', type=int, default=1000)
@@ -89,7 +89,11 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     # load data
     exp_logger.info("Reading dataset")
     X, y = get_dataset(openmlid)
-    exp_logger.info("ready. Now running the algorithm")
+    exp_logger.info(f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
+    if X.shape[0] <= 0:
+        raise Exception("Dataset size invalid!")
+    if X.shape[0] != len(y):
+        raise Exception("X and y do not have the same size.")
     
     def mccv_adaptive(learner_inst, X, y, timeout, seed=0, r=None):
         return lccv(learner_inst, X, y, r = 1.0, eps = 0, timeout=timeout, base = 2, min_exp = np.log(int(np.floor(X.shape[0] * 0.9))) / np.log(2), MAX_EVALUATIONS = 10, seed=seed, enforce_all_anchor_evaluations=False, verbose=True)
@@ -112,7 +116,13 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
         key = "lccv90"
     elif algorithm == "80lccv":
         validators = validators = [(lccv80, lambda r: r[0])]
-        key = "lccv80"
+        key = "lccv80"    
+    elif algorithm == "90lccv-flex":
+        validators = validators = [(lccv90flex, lambda r: r[0])]
+        key = "lccv90flex"
+    elif algorithm == "80lccv-flex":
+        validators = validators = [(lccv80flex, lambda r: r[0])]
+        key = "lccv80flex"
     else:
         raise Exception(f"Unsupported validation algorithm {algorithm}")
     result = evaluate_validators(validators, test_learners, X, y, timeout, seed=seed, repeats=100, epsilon=epsilon)[key]
