@@ -173,7 +173,13 @@ def mccv(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=None, s
     for r in range(repeats):
         eval_logger.info(f"Seed in MCCV: {seed}. Training on {num_examples} examples. That is {np.round(100 * num_examples / X.shape[0])}% of the data (testing on rest).")
         if timeout is None:
-            scores.append(evaluate(learner, X, y, num_examples, seed))
+            try:
+                scores.append(evaluate(learner, X, y, num_examples, seed))
+            except KeyboardInterrupt:
+                raise
+                
+            except:
+                eval_logger.info("AN ERROR OCCURRED, not counting this run!")
         else:
             try:
                 if deadline <= time.time():
@@ -183,7 +189,7 @@ def mccv(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=None, s
                 break
 
             except KeyboardInterrupt:
-                break
+                raise
                 
             except:
                 eval_logger.info("AN ERROR OCCURRED, not counting this run!")
@@ -209,6 +215,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     exp_logger = logging.getLogger("experimenter")
     n = len(learners)
     memory_history = []
+    index_of_best_learner = -1
     for i, learner in enumerate(learners):
         exp_logger.info(f"""
             --------------------------------------------------
@@ -229,10 +236,12 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
             if score < best_score:
                 best_score = score
                 chosen_learner = temp_pipe
+                index_of_best_learner = i
                 eval_logger.info(f"Thas was a NEW BEST score. r has been updated. In other words, currently chosen model is {format_learner(chosen_learner)}")
             else:
                 del temp_pipe
                 gc.collect()
+                eval_logger.info(f"Candidate was NOT competitive. Eliminating the object and garbage collecting.")
 
         except KeyboardInterrupt:
             eval_logger.warning("Interrupted, stopping")
@@ -242,6 +251,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
                 raise
             else:
                 eval_logger.warning(f"COULD NOT TRAIN {learner} on dataset of shape {X.shape}. Aborting.")
+    eval_logger.info(f"Chosen learner was found in iteration {index_of_best_learner + 1}")
     return chosen_learner, validation_times
 
 def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, seed=0, repeats=10):

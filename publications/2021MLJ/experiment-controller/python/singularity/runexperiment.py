@@ -130,19 +130,20 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     runtime = result[1]
     if model is not None:
         error_rate = np.round(result[2][0], 4)
+        error_rates = list(np.round(result[2][1], 4))
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
             Model: {model}
             Error Rate: {error_rate}
             Runtime: {runtime}
-            Results in final evaluation: {np.round(result[2][1], 4)}""")
+            Results in final evaluation: {np.array(error_rates)}""")
     else:
         exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
         model_name = "None"
     
     # write result
-    output = (model_name, error_rate, runtime)
+    output = (model_name, error_rate, error_rates, runtime)
     with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
     exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")

@@ -297,16 +297,26 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     Schedule: {schedule}""")
     
     ## MAIN LOOP
-    while t <= T and elm.get_conf_interval_size_at_target(target_anchor) > max_conf_interval_size_target and len(elm.get_values_at_anchor(target_anchor)) < MAX_EVALUATIONS:    
+    while t <= T and elm.get_conf_interval_size_at_target(target_anchor) > max_conf_interval_size_target and len(elm.get_values_at_anchor(target_anchor)) < MAX_EVALUATIONS:
+        
+        remaining_time = deadline - time.time() if deadline is not None else np.inf
+        if remaining_time < 1:
+            logger.info("Timeout observed, stopping outer loop of LCCV")
+            break
         
         # initialize stage-specific variables
         eps = max_conf_interval_size_target if t == T else max_conf_interval_size_default
         s_t = schedule[t]
         num_evaluations_at_t = len(elm.get_values_at_anchor(s_t))
-        logger.info(f"Running iteration for t = {t}. Anchor point s_t is {s_t}")
+        logger.info(f"Running iteration for t = {t}. Anchor point s_t is {s_t}. Remaining time: {remaining_time}s")
         
         ## INNER LOOP: acquire observations at anchor until stability is reached, or just a single one to repair convexity
         while repair_convexity or num_evaluations_at_t < min_evals_for_stability or (elm.get_conf_interval_size_at_target(s_t) > eps and num_evaluations_at_t < MAX_EVALUATIONS):
+            
+            remaining_time = deadline - time.time() if deadline is not None else np.inf
+            if remaining_time < 1:
+                logger.info("Timeout observed, stopping inner loop of LCCV")
+                break
             
             # unset flag for convexity repair
             repair_convexity = False
@@ -314,7 +324,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             # compute next sample
             try:
                 seed_used = 13 * (1 + seed) + num_evaluations_at_t
-                logger.debug(f"Adding point at size {s_t} with seed is {seed_used}.")
+                logger.debug(f"Adding point at size {s_t} with seed is {seed_used}. Remaining time: {remaining_time}s")
                 elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
                 num_evaluations_at_t += 1
                 logger.debug("Sample computed successfully.")

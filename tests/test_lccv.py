@@ -56,7 +56,7 @@ class TestLccv(unittest.TestCase):
 
         # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
         lccv_logger = logging.getLogger("lccv")
-        lccv_logger.setLevel(logging.WARN)
+        lccv_logger.setLevel(logging.INFO)
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
         formatter = logging.Formatter(
@@ -144,10 +144,10 @@ class TestLccv(unittest.TestCase):
     """
         This test checks whether the results are equivalent to a 5CV or 10CV
     """
-    @parameterized.expand(list(it.product(preprocessors, learners, [61])))
+    @parameterized.expand(list(it.product(preprocessors, learners, [1464])))#[61])))
     def test_lccv_runtime_and_result_bare(self, preprocessor, learner, dataset):
         X, y = get_dataset(dataset)
-        self.logger.info(f"Start Test LCCV when running with r=1.0 on dataset {dataset[0]}")
+        self.logger.info(f"Start Test LCCV when running with r=1.0 on dataset {dataset}")
         
         # configure pipeline
         steps = []
@@ -286,5 +286,43 @@ class TestLccv(unittest.TestCase):
             else:
                 self.assertTrue(np.abs(score_10cv - score_90lccv) <= tol, msg=f"Avg Score of 90lccv was {score_90lccv}, which deviates by more than {tol} from the {score_10cv} of 10CV. Pipeline was {pl} and dataset {dataset}")
         
+        except ValueError:
+            print("Skipping case in which training is not possible!")
+            
+            
+    """
+        This checks whether LCCV respects the timeout
+    """
+    @parameterized.expand(list(it.product(preprocessors, learners, [(61, 0.0), (1485, 0.2)])))
+    def test_lccv_respects_timeouts(self, preprocessor, learner, dataset):
+        X, y = get_dataset(dataset[0])
+        r = dataset[1]
+        self.logger.info(f"Start Test LCCV when running with r={r} on dataset {dataset[0]} wither preprocessor {preprocessor} and learner {learner}")
+        
+        # configure pipeline
+        steps = []
+        if preprocessor is not None:
+            pp = preprocessor()
+            if "copy" in pp.get_params().keys():
+                pp = preprocessor(copy=False)
+            steps.append(("pp", pp))
+        learner_inst = learner()
+        if "warm_start" in learner_inst.get_params().keys(): # active warm starting if available, because this can cause problems.
+            learner_inst = learner(warm_start=True)
+        steps.append(("predictor", learner_inst))
+        pl = sklearn.pipeline.Pipeline(steps)
+        
+        timeout = 1.5
+        
+        # do tests
+        try:
+            
+            # run 80lccv
+            self.logger.info("Running 80LCCV")
+            start = time.time()
+            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, MAX_EVALUATIONS=5, timeout=timeout)[0]
+            end = time.time()
+            runtime_80lccv = end - start
+            self.assertTrue(runtime_80lccv <= timeout, msg=f"Permitted runtime exceeded. Permitted was {timeout}s but true runtime was {runtime_80lccv}")
         except ValueError:
             print("Skipping case in which training is not possible!")
