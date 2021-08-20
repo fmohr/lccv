@@ -12,10 +12,10 @@ import json
 def parse_args():
     default_path = '~/experiments/lccv_sensitivity/'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--experiment_idx', type=int, default=140)
-    parser.add_argument('--dataset_id', type=int, default=3)
+    parser.add_argument('--experiment_idx', type=int)
+    parser.add_argument('--dataset_id', type=int)
     parser.add_argument('--timeout', type=int, default=300)
-    parser.add_argument('--num_pipelines', type=int, default=10)
+    parser.add_argument('--num_pipelines', type=int, default=200)
     parser.add_argument('--num_seeds', type=int, default=10)
     parser.add_argument('--folder', type=str, default=os.path.expanduser(default_path))
     parser.add_argument('--prob_dp', type=float, default=0.5)
