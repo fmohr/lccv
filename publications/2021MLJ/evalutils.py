@@ -109,7 +109,7 @@ def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train 
     except:
         eval_logger.info("Observed some exception. Returning nan")
         return (np.nan,)
-    
+
 def lccv90flex(learner_inst, X, y, r=1.0, timeout=None, seed=None, **kwargs): # maximum train size is 90% of the data (like for 10CV)
     try:
         enforce_all_anchor_evaluations = r == 1
@@ -277,7 +277,13 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
             out[validator[0].__name__] = ("n/a", runtime, np.nan)
         else:
             if not str(chosen_learner.steps) in performances:
-                target_size = .9
+                if validator.__name__ in ["cv5", "lccv80", "lccv80flex"]:
+                    target_size = .8
+                elif validator.__name__ in ["cv10", "lccv90", "lccv90flex"]:
+                    target_size = .9
+                else:
+                    raise Exception(
+                        f"Invalid validator function {validator.__name__}")
                 eval_logger.info(f"Appplying target size {target_size}")
                 performances[str(chosen_learner.steps)] = mccv(chosen_learner, X, y, target_size = target_size, repeats=repeats, seed=4711)
             out[validator[0].__name__] = (chosen_learner.steps, runtime, performances[str(chosen_learner.steps)])
