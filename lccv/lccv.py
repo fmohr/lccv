@@ -265,7 +265,19 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     # create standard logger if none is given
     if logger is None:
         logger = logging.getLogger('lccv')
-    
+    logger.debug("timeout = " + str(timeout) + ", " +
+                 "BASE = " + str(base) + ", " +
+                 "min_exp = " + str(min_exp) + ", " +
+                 "MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION = " + str(MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION) + ", " +
+                 "MAX_EVALUATIONS = " + str(MAX_EVALUATIONS) + ", " +
+                 "target_anchor = " + str(target_anchor) + ", " +
+                 "return_estimate_on_incomplete_runs = " + str(return_estimate_on_incomplete_runs) + ", " +
+                 "max_conf_interval_size_default = " + str(max_conf_interval_size_default) + ", " +
+                 "max_conf_interval_size_target = " + str(max_conf_interval_size_target) +  ", " +
+                 "enforce_all_anchor_evaluations = " + str(enforce_all_anchor_evaluations) +  ", " +
+                 "seed = " + str(seed) +  ", " +
+                 "min_evals_for_stability = " + str(min_evals_for_stability) + ", " +
+                 "fix_train_test_folds = " + str(fix_train_test_folds))
     # intialize
     tic = time.time()
     deadline = tic + timeout if timeout is not None else None
