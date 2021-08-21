@@ -64,19 +64,24 @@ def cv5(learner_inst, X, y, timeout=None, seed=None, r=None):
 def cv(learner_inst, X, y, folds, timeout, seed):
     kf = sklearn.model_selection.KFold(n_splits=folds, random_state=np.random.RandomState(seed), shuffle=True)
     scores = []
+    deadline = time.time() + timeout if timeout is not None else None
     for train_index, test_index in kf.split(X):
         learner_inst_copy = sklearn.base.clone(learner_inst)
         X_train, y_train = X[train_index], y[train_index]
         X_test, y_test = X[test_index], y[test_index]
         try:
-            eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and timeout {timeout}.")
+            
             if timeout is None:
+                eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and without timeout.")
                 learner_inst_copy.fit(X_train, y_train)
-            else:            
-                func_timeout(timeout, learner_inst_copy.fit, (X_train, y_train))
+            else:
+                timeout_loc = deadline - time.time()
+                eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and timeout {timeout_loc}.")
+                func_timeout(timeout_loc, learner_inst_copy.fit, (X_train, y_train))
                 
             y_hat = learner_inst_copy.predict(X_test)
             error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+            eval_logger.info(f"Observed an error rate of {error_rate}")
             scores.append(error_rate)
         except FunctionTimedOut:
             eval_logger.info(f"Timeout observed for {folds}CV, stopping and using avg of {len(scores)} folds.")
@@ -277,9 +282,9 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
             out[validator[0].__name__] = ("n/a", runtime, np.nan)
         else:
             if not str(chosen_learner.steps) in performances:
-                if validator.__name__ in ["cv5", "lccv80", "lccv80flex"]:
+                if validator[0].__name__ in ["cv5", "lccv80", "lccv80flex"]:
                     target_size = .8
-                elif validator.__name__ in ["cv10", "lccv90", "lccv90flex"]:
+                elif validator[0].__name__ in ["cv10", "lccv90", "lccv90flex"]:
                     target_size = .9
                 else:
                     raise Exception(
