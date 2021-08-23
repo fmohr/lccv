@@ -3,7 +3,7 @@ import os
 
 
 def parse_args():
-    default_path = '~/experiments/lccv/'
+    default_path = '~/experiments/lccv_sensitivity/'
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_dir', type=str, default=os.path.expanduser(default_path))
     return parser.parse_args()
