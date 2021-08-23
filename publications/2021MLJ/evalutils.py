@@ -228,7 +228,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     memory_history = []
     index_of_best_learner = -1
 
-    target_anchor = None  # undefined
+    target_anchor = int(np.floor(X.shape[0] * .9))  # TODO hardcoded, please fix
     target_anchor_count = 0
     learner_crash_count = 0
     for i, learner in enumerate(learners):
@@ -245,11 +245,7 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
             validation_result = validation_func(temp_pipe, X, y, r = r, timeout=timeout_per_evaluation, seed=13 *seed + i, **kwargs)
             if validation_result[3] is None:
                 learner_crash_count += 1
-            if target_anchor is None:
-                # target anchor not defined yet, let's set it!
-                target_anchor = max(validation_result[2].keys())
-                target_anchor_count = 1
-            elif target_anchor in validation_result[2].keys():
+            if target_anchor in validation_result[2].keys():
                 target_anchor_count += 1
             score = validation_result_extractor(validation_result)
             runtime = time.time() - validation_start
