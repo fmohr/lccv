@@ -18,7 +18,7 @@ def run(args):
     logging.basicConfig(level=logging.INFO)
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
-    
+
     count = 0
     records = []
 
@@ -26,16 +26,16 @@ def run(args):
         dataset_dir = os.path.join(args.results_dir, dataset_id)
         if os.path.isfile(dataset_dir):
             continue
-        logging.debug('- dataset dir:', dataset_id)
+        logging.debug('- dataset dir: %s' % dataset_id)
         for hyperparameter_name in os.listdir(dataset_dir):
             hpname_dir = os.path.join(args.results_dir, dataset_id, hyperparameter_name)
-            logging.debug('-- hyperparameter name:', hpname_dir)
+            logging.debug('-- hyperparameter name: %s' % hpname_dir)
             for hyperparameter_value in os.listdir(hpname_dir):
                 hpvalue_dir = os.path.join(args.results_dir, dataset_id, hyperparameter_name, hyperparameter_value)
-                logging.debug('--- hyperparameter value:', hpvalue_dir)
+                logging.debug('--- hyperparameter value: %s' % hpvalue_dir)
                 for seed in os.listdir(hpvalue_dir):
                     file = os.path.join(args.results_dir, dataset_id, hyperparameter_name, hyperparameter_value, seed, 'results.txt')
-                    logging.debug('---> file:', file)
+                    logging.debug('---> file: %s' % file)
                     if os.path.isfile(file):
                         with open(file, 'r') as fp:
                             result = json.load(fp)
