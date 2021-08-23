@@ -9,10 +9,16 @@ def parse_args():
     default_path = '~/experiments/lccv_sensitivity/'
     parser = argparse.ArgumentParser()
     parser.add_argument('--results_dir', type=str, default=os.path.expanduser(default_path))
+    parser.add_argument('--verbose', action='store_true')
     return parser.parse_args()
 
 
 def run(args):
+
+    logging.basicConfig(level=logging.INFO)
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    
     count = 0
     records = []
 
@@ -20,26 +26,26 @@ def run(args):
         dataset_dir = os.path.join(args.results_dir, dataset_id)
         if os.path.isfile(dataset_dir):
             continue
-        # print('- dataset dir:', dataset_id)
+        logging.debug('- dataset dir:', dataset_id)
         for hyperparameter_name in os.listdir(dataset_dir):
             hpname_dir = os.path.join(args.results_dir, dataset_id, hyperparameter_name)
-            # print('-- hyperparameter name:', hpname_dir)
+            logging.debug('-- hyperparameter name:', hpname_dir)
             for hyperparameter_value in os.listdir(hpname_dir):
                 hpvalue_dir = os.path.join(args.results_dir, dataset_id, hyperparameter_name, hyperparameter_value)
-                # print('--- hyperparameter value:', hpvalue_dir)
+                logging.debug('--- hyperparameter value:', hpvalue_dir)
                 for seed in os.listdir(hpvalue_dir):
                     file = os.path.join(args.results_dir, dataset_id, hyperparameter_name, hyperparameter_value, seed, 'results.txt')
-                    # print('---> file:', file)
+                    logging.debug('---> file:', file)
                     if os.path.isfile(file):
                         with open(file, 'r') as fp:
                             result = json.load(fp)
                             record = {
-                                'dataset_id': dataset_id,
-                                'hyperparameter_name': hyperparameter_name,
-                                'hyperparameter_value': hyperparameter_value,
-                                'seed': seed,
-                                'error_rate': result[1],
-                                'runtime': result[2]
+                                'dataset_id': int(dataset_id),
+                                'hyperparameter_name': str(hyperparameter_name),
+                                'hyperparameter_value': str(hyperparameter_value),
+                                'seed': int(seed),
+                                'error_rate': float(result[1]),
+                                'runtime': float(result[2])
                             }
                             records.append(record)
                         # print(file)
