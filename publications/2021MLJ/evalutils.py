@@ -124,7 +124,7 @@ def lccv90flex(learner_inst, X, y, r=1.0, timeout=None, seed=None, **kwargs): # 
     except Exception as e:
         traceback.print_exc()
         eval_logger.info("Observed some exception. Returning nan")
-        return (np.nan,)
+        return (np.nan, np.nan, dict(), None)
 
 def lccv80flex(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train size is 80% of the data (like for 5CV)
     try:
@@ -227,6 +227,10 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
     n = len(learners)
     memory_history = []
     index_of_best_learner = -1
+
+    target_anchor = None  # undefined
+    target_anchor_count = 0
+    learner_crash_count = 0
     for i, learner in enumerate(learners):
         exp_logger.info(f"""
             --------------------------------------------------
@@ -238,7 +242,16 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
         try:
             validation_start = time.time()
             temp_pipe = sklearn.pipeline.Pipeline([(step_name, build_estimator(comp, params, X, y)) for step_name, (comp, params) in learner])
-            score = validation_result_extractor(validation_func(temp_pipe, X, y, r = r, timeout=timeout_per_evaluation, seed=13 *seed + i, **kwargs))
+            validation_result = validation_func(temp_pipe, X, y, r = r, timeout=timeout_per_evaluation, seed=13 *seed + i, **kwargs)
+            if validation_result[3] is None:
+                learner_crash_count += 1
+            if target_anchor is None:
+                # target anchor not defined yet, let's set it!
+                target_anchor = max(validation_result[2].keys())
+                target_anchor_count = 1
+            elif target_anchor in validation_result[2].keys():
+                target_anchor_count += 1
+            score = validation_result_extractor(validation_result)
             runtime = time.time() - validation_start
             validation_times.append(runtime)
             eval_logger.info(f"Observed score {score} for {format_learner(temp_pipe)}. Validation took {int(np.round(runtime * 1000))}ms")
@@ -261,9 +274,10 @@ def select_model(validation, learners, X, y, timeout_per_evaluation, epsilon, se
             if True or exception_on_failure:
                 raise
             else:
+                learner_crash_count += 1
                 eval_logger.warning(f"COULD NOT TRAIN {learner} on dataset of shape {X.shape}. Aborting.")
     eval_logger.info(f"Chosen learner was found in iteration {index_of_best_learner + 1}")
-    return chosen_learner, validation_times
+    return chosen_learner, validation_times, target_anchor_count, learner_crash_count
 
 def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsilon, seed=0, repeats=10):
     out = {}
@@ -275,11 +289,12 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
         {validator[0].__name__} (with seed {seed})
         -------------------------------""")
         time_start = time.time()
-        chosen_learner = select_model(validator, learners, X, y, timeout_per_evaluation, epsilon, seed=seed)[0]
+        model_selection_result = select_model(validator, learners, X, y, timeout_per_evaluation, epsilon, seed=seed)
+        chosen_learner = model_selection_result[0]
         runtime = int(np.round(time.time() - time_start))
         eval_logger.info("Chosen learner is " + str(chosen_learner) + ". Now computing its definitive performance.")
         if chosen_learner is None:
-            out[validator[0].__name__] = ("n/a", runtime, np.nan)
+            out[validator[0].__name__] = ("n/a", runtime, np.nan, model_selection_result[2], model_selection_result[3])
         else:
             if not str(chosen_learner.steps) in performances:
                 if validator[0].__name__ in ["cv5", "lccv80", "lccv80flex"]:
@@ -291,5 +306,5 @@ def evaluate_validators(validators, learners, X, y, timeout_per_evaluation, epsi
                         f"Invalid validator function {validator.__name__}")
                 eval_logger.info(f"Appplying target size {target_size}")
                 performances[str(chosen_learner.steps)] = mccv(chosen_learner, X, y, target_size = target_size, repeats=repeats, seed=4711)
-            out[validator[0].__name__] = (chosen_learner.steps, runtime, performances[str(chosen_learner.steps)])
+            out[validator[0].__name__] = (chosen_learner.steps, runtime, performances[str(chosen_learner.steps)], model_selection_result[2], model_selection_result[3])
     return out

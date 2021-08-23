@@ -413,7 +413,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     
     # return result depending on observations and configuration
     if len(estimates) == 0:
-        return np.nan, np.nan, [], elm
+        return np.nan, np.nan, dict(), elm
     elif len(estimates) < 3:
         max_anchor = max([int(k) for k in estimates])
         return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm

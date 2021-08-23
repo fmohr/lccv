@@ -131,7 +131,7 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
         model_name = "None"
 
     # write result
-    output = (model_name, error_rate, runtime)
+    output = (model_name, error_rate, runtime, result[3], result[4])
     with open(folder + "/results.txt", "w") as outfile:
         json.dump(output, outfile)
     exp_logger.info(
