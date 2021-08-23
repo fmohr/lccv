@@ -54,7 +54,7 @@ def run(args):
     logging.info('total files found: %d' % count)
     if count > 0:
         frame = pd.DataFrame(records)
-        result_file = os.path.join(args.results_dir), 'results.csv'
+        result_file = os.path.join(args.results_dir, 'results.csv')
         frame.to_csv(result_file)
         logging.info('results saved to: %s' % result_file)
 
