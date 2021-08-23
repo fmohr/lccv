@@ -118,7 +118,7 @@ def lccv80(learner_inst, X, y, r=1.0, seed=None, timeout=None): # maximum train 
 def lccv90flex(learner_inst, X, y, r=1.0, timeout=None, seed=None, **kwargs): # maximum train size is 90% of the data (like for 10CV)
     try:
         enforce_all_anchor_evaluations = r == 1
-        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False, **kwargs)
+        return lccv.lccv(learner_inst, X, y, r=r, timeout=timeout, seed=seed, target_anchor=.9, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False, **kwargs)
     except KeyboardInterrupt:
         raise
     except Exception as e:
