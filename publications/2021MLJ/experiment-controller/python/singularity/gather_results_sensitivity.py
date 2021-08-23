@@ -17,7 +17,7 @@ def run(args):
 
     logging.basicConfig(level=logging.INFO)
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=0)
 
     count = 0
     records = []
@@ -53,7 +53,7 @@ def run(args):
 
     logging.info('total files found: %d' % count)
     if count > 0:
-        frame = pd.DataFrame(record)
+        frame = pd.DataFrame(records)
         result_file = os.path.join(args.results_dir), 'results.csv'
         frame.to_csv(result_file)
         logging.info('results saved to: %s' % result_file)
