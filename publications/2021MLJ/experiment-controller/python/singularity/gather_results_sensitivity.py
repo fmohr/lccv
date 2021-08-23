@@ -19,7 +19,7 @@ def run(directory):
             print('-- hyperparameter name:', hpname_dir)
             for hyperparameter_value in os.listdir(hpname_dir):
                 hpvalue_dir = os.path.join(directory, dataset_id, hyperparameter_name, hyperparameter_value)
-                print('--- hyperparameter value:', hpname_dir)
+                print('--- hyperparameter value:', hpvalue_dir)
                 for seed in os.listdir(hpvalue_dir):
                     file = os.path.join(directory, dataset_id, hyperparameter_name, hyperparameter_value, seed, 'results.txt')
                     print('---> file:', file)
