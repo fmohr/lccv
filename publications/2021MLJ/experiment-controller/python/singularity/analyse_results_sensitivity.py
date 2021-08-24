@@ -1,7 +1,6 @@
 import argparse
-import json
-import logging
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pandas as pd
 
@@ -37,6 +36,13 @@ def run(args):
 
         for dimension2_value in dimension2_unique_vals:
             frame_double_sliced = frame_sliced.loc[frame_sliced[dimension2] == dimension2_value]
+            try:
+                frame_double_sliced.loc[:, 'hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(np.int)
+            except ValueError:
+                try:
+                    frame_double_sliced.loc[:, 'hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(np.float64)
+                except ValueError:
+                    pass
             frame_double_sliced = frame_double_sliced[['hyperparameter_value', 'error_rate', 'runtime']].groupby('hyperparameter_value')
             frame_mean = frame_double_sliced.mean()
             values = frame_mean.index.to_numpy()
