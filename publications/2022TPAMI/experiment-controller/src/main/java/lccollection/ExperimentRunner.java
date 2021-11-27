@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -60,9 +61,11 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 		File file = new File("computelc.py");
 		String singularityImage = "test.simg";
+		List<String> args = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " " + outFile.getAbsolutePath());
 		logger.info("Executing {} in singularity.", new File(workingDirectory + File.separator + file));
+		logger.info("Arguments: {}", args);
 
-		ProcessBuilder pb = new ProcessBuilder(Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " " + outFile.getAbsolutePath()));
+		ProcessBuilder pb = new ProcessBuilder(args);
 		pb.directory(workingDirectory);
 		pb.redirectErrorStream(true);
 		System.out.println("Starting process. Current memory usage is " + ((Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024 / 1024) + "MB");
@@ -99,10 +102,15 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 		fe.withExecutorInfo(jobInfo);
 
 
-		for (int i = 0; i < 100; i++) {
+		long deadline = System.currentTimeMillis() + 86000 * 1000;
+		long remainingTime;
+		do {
 			logger.info("Conducting experiment. Currently used memory is {}MB. Free memory is {}MB.", (Runtime.getRuntime().maxMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024.0), Runtime.getRuntime().freeMemory() / (1024 * 1024.0));
 			fe.randomlyConductExperiments(1);
-			logger.info("Experiment finished, stopping!");
+			remainingTime = deadline - System.currentTimeMillis();
+			logger.info("Experiment finished. Remaining time: {}!", remainingTime);
 		}
+		while (remainingTime > 12 * 3600 * 1000);
+		System.out.println("Remaining time only " + (remainingTime / 1000) + "s. Stopping.");
 	}
 }

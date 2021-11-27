@@ -38,15 +38,19 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 			Map<String, String> keys = experimentEntry.getExperiment().getValuesOfKeyFields();
 			int openmlid = Integer.valueOf(keys.get("openmlid"));
 			int seed = Integer.valueOf(keys.get("seed"));
+			int numpipelines = Integer.valueOf(keys.get("numpipelines"));
+			String probDP = keys.get("prob_dp");
+			String probFP = keys.get("prob_fp");
 			String algo = keys.get("algorithm");
 			String timeout = keys.get("timeout");
 			logger.info("\topenmlid: {}", openmlid);
 			logger.info("\talgo: {}", algo);
 			logger.info("\tseed: {}", seed);
+			logger.info("\tnumpipelines: {}", numpipelines);
 			logger.info("\ttimeout: {}", timeout);
 
 			/* run python experiment */
-			String options = openmlid + " " + algo + " " + seed + " " + timeout;
+			String options = "--dataset_id=" + openmlid + " --algorithm=" + algo + " --seed=" + seed + " --num_pipelines=" + numpipelines + " --timeout=" + timeout + " --prob_dp=" + probDP + " --prob_fp=" + probFP;
 			JsonNode results = getPythonExperimentResults(options);
 			logger.info("Obtained result json node: {}", results);
 
@@ -54,7 +58,8 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 			Map<String, Object> map = new HashMap<>();
 			map.put("chosenmodel", results.get(0).asText());
 			map.put("errorrate", results.get(1).asDouble());
-			map.put("runtime", results.get(2).asInt());
+			map.put("validationscores", results.get(2));
+			map.put("runtime", results.get(3).asInt());
 			processor.processResults(map);
 		}
 		catch (Exception e) {
@@ -70,7 +75,7 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 		File file = new File("runexperiment.py");
 		String singularityImage = "test.simg";
-		List<String> cmdList = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " " + folder.getAbsolutePath());
+		List<String> cmdList = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " --folder=" + folder.getAbsolutePath());
 		logger.info("Executing {}", cmdList);
 
 		ProcessBuilder pb = new ProcessBuilder(cmdList);
