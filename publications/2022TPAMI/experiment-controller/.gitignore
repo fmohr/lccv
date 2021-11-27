@@ -2,7 +2,11 @@
 .classpath
 .gradle/
 build
+bin
 logs
 .settings
 python/singularity/tmp
 python/singularity/test.simg
+conf/database.conf
+conf/database-local.conf
+conf/database-local-lc.conf
