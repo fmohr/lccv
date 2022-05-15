@@ -97,7 +97,7 @@ class Evaluator:
             return error_rate
         
         except FunctionTimedOut:
-            eval_logger.info(f"Timeout observed for {folds}CV, stopping and using avg of {len(scores)} folds.")
+            eval_logger.info(f"Timeout observed for evaluation, stopping and returning nan.")
         except KeyboardInterrupt:
             raise
         except:
