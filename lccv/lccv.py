@@ -59,7 +59,7 @@ class EmpiricalLearningModel:
             self.X = X
             self.y = y
             self.n_test = n_test
-        self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate", "runtime"])
+        self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate_train", "error_rate_test", "runtime"])
         
         
 
@@ -89,29 +89,38 @@ class EmpiricalLearningModel:
         end = time.time()
         self.logger.debug(f"Training ready after {int((end - start) * 1000)}ms. Now obtaining predictions.")
         y_hat = learner_inst.predict(X_test.copy())
-        error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+        error_rate_test = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
+        y_hat = learner_inst.predict(X_train.copy())
+        error_rate_train = 1 - sklearn.metrics.accuracy_score(y_train, y_hat)
         end = time.time()
-        self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate}.")
-        return error_rate
+        self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate_test}.")
+        return error_rate_train, error_rate_test
     
-    def compute_and_add_sample(
-            self, size, seed=None, timeout=None, verbose=False):
+    def compute_and_add_sample(self, size, seed=None, timeout=None, verbose=False):
         tic = time.time()
         # TODO: important to check whether this is always a different order
-        error_rate = self.evaluate(
+        error_rate_train, error_rate_test = self.evaluate(
             sklearn.base.clone(self.learner), size,
             timeout / 1000 if timeout is not None else None, verbose)
         toc = time.time()
         runtime = int(np.round(1000 * (toc-tic)))
         self.logger.debug(f"Sample value computed within {runtime}ms")
-        self.df.loc[len(self.df)] = [size, seed, error_rate, runtime]
+        self.df.loc[len(self.df)] = [size, seed, error_rate_train, error_rate_test, runtime]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
     
-    def get_values_at_anchor(self, anchor):
-        return self.df[self.df["trainsize"] == anchor]["error_rate"].values
+    def get_values_at_anchor(self, anchor, test_scores = True):
+        return self.df[self.df["trainsize"] == anchor]["error_rate_" + ("test" if test_scores else "train")].values
     
-    def get_mean_performance_at_anchor(self, anchor):
-        return np.mean(self.get_values_at_anchor(anchor))
+    def get_worst_train_score(self):
+        curve = self.get_mean_curve(False)
+        return max(curve[1])
+    
+    def get_mean_performance_at_anchor(self, anchor, test_scores = True):
+        return np.mean(self.get_values_at_anchor(anchor, test_scores = test_scores))
+    
+    def get_mean_curve(self, test_scores = True):
+        anchors = sorted(pd.unique(self.df["trainsize"]))
+        return anchors, [self.get_mean_performance_at_anchor(a, test_scores = test_scores) for a in anchors]
     
     def get_conf_interval_size_at_target(self, target):
         if len (self.df[self.df["trainsize"] == target]) == 0:
@@ -132,10 +141,10 @@ class EmpiricalLearningModel:
             return out
     
         dfProbesAtSize = self.df[self.df["trainsize"] == size]
-        mu = np.mean(dfProbesAtSize["error_rate"])
-        sigma = np.std(dfProbesAtSize["error_rate"])
+        mu = np.mean(dfProbesAtSize["error_rate_test"])
+        sigma = np.std(dfProbesAtSize["error_rate_test"])
         return {
-            "n": len(dfProbesAtSize["error_rate"]),
+            "n": len(dfProbesAtSize["error_rate_test"]),
             "mean": np.round(mu, round_precision),
             "std": np.round(sigma, round_precision),
             "conf": np.round(scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize))) if sigma > 0 else (mu, mu), round_precision)
@@ -190,7 +199,7 @@ class EmpiricalLearningModel:
         
     def get_ipl(self):
         sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate"]) for s in sizes]
+        scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate_test"]) for s in sizes]
         def ipl(beta):
             a, b, c = tuple(beta.astype(float))
             pl = lambda x: a + b * x **(-c)
@@ -228,7 +237,7 @@ class EmpiricalLearningModel:
         return -b/(2 * a) + np.sqrt(inner)
     
 
-def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3,fix_train_test_folds=False):
+def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.03, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3, use_train_curve=True,fix_train_test_folds=False):
     """
     Evaluates a learner in an iterative fashion, using learning curves. The
     method builds upon the assumption that learning curves are convex. After
@@ -260,6 +269,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     :param verbose:
     :param logger:
     :param min_evals_for_stability:
+    :param use_train_curve: If True, then the evaluation stops as soon as the train curve drops under the threshold r
     :return:
     """
     # create standard logger if none is given
@@ -285,7 +295,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     if X.shape[0] <= 0:
         raise Exception(f"Recieved dataset with non-positive number of instances. Shape is {X.shape}")
 
-    # configure the exponents and status variables    print(target_anchor)
+    # configure the exponents and status variables
     if target_anchor < 1:
         target_anchor = int(np.floor(X.shape[0] * target_anchor))
     
@@ -354,6 +364,10 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                     if slopes[t - 2] < slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
                         repair_convexity = True
                         break
+        
+        if elm.get_worst_train_score() > r:
+            print(f"Train curve has value {elm.get_worst_train_score()} that is already worse than r = {r}. Stopping.")
+            break
         
         # after the last stage, we dont need any more tests
         if t == T:

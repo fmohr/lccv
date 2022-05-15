@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('--experiment_idx', type=int)
     parser.add_argument('--num_seeds', type=int)
     parser.add_argument('--dataset_id', type=int)
-    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv', '80lccv-flex', '90lccv-flex'])
+    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv', '80lccv-flex', '90lccv-flex', '80wilcoxon', '90wilcoxon', '80sh', '90sh'])
     parser.add_argument('--seed', type=int)
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--num_pipelines', type=int, default=1000)
@@ -103,34 +103,28 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
-    # run lccv
-    epsilon = 0.0
-    if algorithm == "5cv":
-        validators = validators = [(cv5, lambda r: r)]
-        key = "cv5"
-    elif algorithm == "10cv":
-        validators = validators = [(cv10, lambda r: r)]
-        key = "cv10"
-    elif algorithm == "90lccv":
-        validators = validators = [(lccv90, lambda r: r[0])]
-        key = "lccv90"
-    elif algorithm == "80lccv":
-        validators = validators = [(lccv80, lambda r: r[0])]
-        key = "lccv80"    
-    elif algorithm == "90lccv-flex":
-        validators = validators = [(lccv90flex, lambda r: r[0])]
-        key = "lccv90flex"
-    elif algorithm == "80lccv-flex":
-        validators = validators = [(lccv80flex, lambda r: r[0])]
-        key = "lccv80flex"
+    if algorithm in ["80sh", "90sh"]:
+        if algorithm == "80sh":
+            repeats = 5
+            max_train_size = 0.8
+        else:
+            repeats = 10
+            max_train_size = 0.9
+            
+        selector = SH(X, y, timeout, max_train_budget = max_train_size, seed=seed, repeats = repeats)
     else:
-        raise Exception(f"Unsupported validation algorithm {algorithm}")
-    result = evaluate_validators(validators, test_learners, X, y, timeout, seed=seed, repeats=100, epsilon=epsilon)[key]
-    model = result[0]
-    runtime = result[1]
+        selector = VerticalEvaluator(X, y, algorithm, timeout, epsilon = 0.01, seed=seed)
+    
+    # run selector
+    time_start = time.time()
+    model = selector.select_model(test_learners)
+    runtime = time.time() - time_start
+
     if model is not None:
-        error_rate = np.round(result[2][0], 4)
-        error_rates = list(np.round(result[2][1], 4))
+        
+        # compute validation performance of selection
+        error_rates = selector.mccv(model, target_size=.9, timeout=None, seed=seed, repeats = 100)
+        error_rate = np.nanmean(error_rates)
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
             Model: {model}
@@ -141,9 +135,9 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
         exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
         model_name = "None"
-    
+        
     # write result
-    output = (model_name, error_rate, error_rates, runtime)
+    output = (model_name, np.nanmean(error_rate), error_rates, runtime)
     with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
     exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")
@@ -172,4 +166,4 @@ if __name__ == '__main__':
     elif args.experiment_idx is not None and args.num_seeds is not None and args.algorithm is not None:
         run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout, args.prob_dp, args.prob_fp)
     else:
-        raise ValueError('Wrong set of arguments provided. ')
+        raise ValueError('Wrong set of arguments provided. Specify either\n\t--dataset_id=.. --algorithm=.. --seed=..  or\n\t--experiment_idx=.. --algorithm=.. --num_seeds=.. ')
