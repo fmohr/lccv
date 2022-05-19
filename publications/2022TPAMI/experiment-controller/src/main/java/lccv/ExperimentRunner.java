@@ -75,7 +75,7 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 		File file = new File("runexperiment.py");
 		String singularityImage = "test.simg";
-		List<String> cmdList = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3 " + file + " " + options + " --folder=" + folder.getAbsolutePath());
+		List<String> cmdList = Arrays.asList("singularity", "exec", singularityImage, "bash", "-c", "python3.8 " + file + " " + options + " --folder=" + folder.getAbsolutePath());
 		logger.info("Executing {}", cmdList);
 
 		ProcessBuilder pb = new ProcessBuilder(cmdList);
