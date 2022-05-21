@@ -87,7 +87,8 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
 
     
     # load data
-    exp_logger.info("Reading dataset")
+    binarize_sparse = openmlid in [1111, 41147, 41150, 42732, 42733]
+    exp_logger.info(f"Reading dataset. Will be binarized sparsely: {binarize_sparse}")
     X, y = get_dataset(openmlid)
     exp_logger.info(f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
     if X.shape[0] <= 0:
@@ -103,6 +104,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
+    
     if algorithm in ["80sh", "90sh"]:
         if algorithm == "80sh":
             repeats = 5
@@ -111,9 +113,9 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
             repeats = 10
             max_train_size = 0.9
             
-        selector = SH(X, y, timeout, max_train_budget = max_train_size, seed=seed, repeats = repeats)
+        selector = SH(X, y, binarize_sparse, timeout, max_train_budget = max_train_size, seed=seed, repeats = repeats)
     else:
-        selector = VerticalEvaluator(X, y, algorithm, timeout, epsilon = 0.01, seed=seed)
+        selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, timeout, epsilon = 0.01, seed=seed)
     
     # run selector
     time_start = time.time()

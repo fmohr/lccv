@@ -36,8 +36,16 @@ def get_dataset(openmlid):
         
     # prepare label column as numpy array
     print(f"Read in data frame. Size is {len(df)} x {len(df.columns)}.")
-    X = df.drop(columns=[ds.default_target_attribute]).values
-    y = df[ds.default_target_attribute].values
+    X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
+    y = np.array(df[ds.default_target_attribute].values)
+    if y.dtype != int:
+        y_int = np.zeros(len(y)).astype(int)
+        vals = np.unique(y)
+        for i, val in enumerate(vals):
+            mask = y == val
+            y_int[mask] = i
+        y = y_int
+        
     print(f"Data is of shape {X.shape}.")
     return X, y
 
@@ -53,7 +61,7 @@ def format_learner(learner):
     
 class Evaluator:
     
-    def __init__(self, X, y):
+    def __init__(self, X, y, binarize_sparse = False):
         self.X = X
         self.y = y
         
@@ -68,7 +76,7 @@ class Evaluator:
         if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
             categorical_transformer = Pipeline([
                 ("imputer", sklearn.impute.SimpleImputer(strategy="most_frequent")),
-                ("binarizer", sklearn.preprocessing.OneHotEncoder(handle_unknown='ignore', sparse = False)),
+                ("binarizer", sklearn.preprocessing.OneHotEncoder(handle_unknown='ignore', sparse = binarize_sparse)),
             ])
             self.mandatory_pre_processing = [("impute_and_binarize", ColumnTransformer(
                 transformers=[
@@ -81,7 +89,6 @@ class Evaluator:
     
     def eval_pipeline_on_fold(self, pl, X_train, X_test, y_train, y_test, timeout = None):
         try:
-            
             pl = Pipeline(self.mandatory_pre_processing + sklearn.base.clone(pl).steps)
             
             if timeout is None:
@@ -177,13 +184,13 @@ class Evaluator:
 
 class SH(Evaluator):
     
-    def __init__(self, X, y, timeout_per_evaluation, max_train_budget, b_min = 64, seed = 0, repeats = 10):
+    def __init__(self, X, y, binarize_sparse, timeout_per_evaluation, max_train_budget, b_min = 64, seed = 0, repeats = 10):
         self.timeout_per_evaluation = timeout_per_evaluation
         self.b_min = b_min
         self.seed = seed
         self.repeats = repeats
         self.max_train_budget = max_train_budget
-        super().__init__(X, y)
+        super().__init__(X, y, binarize_sparse)
     
     def select_model(self, learners):
         b_min = self.b_min
@@ -254,8 +261,8 @@ class SH(Evaluator):
 
 class VerticalEvaluator(Evaluator):
     
-    def __init__(self, X, y, validation, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
-        super().__init__(X, y)
+    def __init__(self, X, y, binarize_sparse, validation, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
+        super().__init__(X, y, binarize_sparse)
         if validation == "5cv":
             self.validation_func = lambda pl, seed: self.cv(pl, seed, 5)
         elif validation == "10cv":
@@ -337,7 +344,7 @@ class VerticalEvaluator(Evaluator):
         try:
             enforce_all_anchor_evaluations = self.r == 1
             pl = Pipeline(self.mandatory_pre_processing + pl.steps)
-            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False)[0]
+            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False, visualize_lcs = True)[0]
             self.r = min(self.r, score)
             return score
         except KeyboardInterrupt:

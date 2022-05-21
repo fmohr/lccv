@@ -109,6 +109,7 @@ class EmpiricalLearningModel:
         self.logger.debug(f"Sample value computed within {runtime}ms")
         self.df.loc[len(self.df)] = [size, seed, error_rate_train, error_rate_test, runtime]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
+        return error_rate_train, error_rate_test
     
     def get_values_at_anchor(self, anchor, test_scores = True):
         return self.df[self.df["trainsize"] == anchor]["error_rate_" + ("test" if test_scores else "train")].values
@@ -397,9 +398,9 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             try:
                 seed_used = 13 * (1 + seed) + num_evaluations_at_t
                 logger.debug(f"Adding point at size {s_t} with seed is {seed_used}. Remaining time: {remaining_time}s")
-                elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
+                error_rate_train, error_rate_test = elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
                 num_evaluations_at_t += 1
-                logger.debug("Sample computed successfully.")
+                logger.debug(f"Sample computed successfully. Observed performance was {np.round(error_rate_train, 4)} (train) and {np.round(error_rate_test, 4)} (test).")
             except func_timeout.FunctionTimedOut:
                 timeouted = True
                 logger.info("Observed timeout. Stopping LCCV.")
@@ -475,7 +476,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     # output final reports
     toc = time.time()
     estimates = elm.get_normal_estimates()
-    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]))
+    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") for s_t in schedule]))
     
     # return result depending on observations and configuration
     if len(estimates) == 0:
