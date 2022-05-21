@@ -68,7 +68,7 @@ class EmpiricalLearningModel:
     def evaluate(self, learner_inst, size, timeout, verbose):
 
         self.active_seed += 1
-        self.logger.debug("Computing trainning data")
+        self.logger.debug("Computing training data")
         
         # obtain train and test data (depending on configuration)
         if self.fix_train_test_folds:

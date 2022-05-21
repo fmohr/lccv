@@ -107,8 +107,8 @@ class Evaluator:
             eval_logger.info(f"Timeout observed for evaluation, stopping and returning nan.")
         except KeyboardInterrupt:
             raise
-        except:
-            eval_logger.info("Observed some exception. Stopping")
+        except Exception as e:
+            eval_logger.info(f"Observed some exception. Stopping. Exception: {e}")
         
         return np.nan
     
@@ -349,8 +349,8 @@ class VerticalEvaluator(Evaluator):
             return score
         except KeyboardInterrupt:
             raise
-        except:
-            eval_logger.info("Observed some exception. Returning nan")
+        except Exception as e:
+            eval_logger.info(f"Observed some exception. Returning nan. Exception was {e}")
             return np.nan
     
     def select_model(self, learners):
