@@ -261,24 +261,27 @@ class SH(Evaluator):
 
 class VerticalEvaluator(Evaluator):
     
-    def __init__(self, X, y, binarize_sparse, validation, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
+    def __init__(self, X, y, binarize_sparse, validation, train_size, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
         super().__init__(X, y, binarize_sparse)
-        if validation == "5cv":
-            self.validation_func = lambda pl, seed: self.cv(pl, seed, 5)
-        elif validation == "10cv":
-            self.validation_func = lambda pl, seed: self.cv(pl, seed, 10)
-        elif "lccv" in validation:
-            self.r = 1.0
-            if validation == "80lccv":
-                self.validation_func = self.lccv80            
-            elif validation == "80lccv-flex":
-                self.validation_func = self.lccv80flex
-            elif validation == "90lccv":
-                self.validation_func = self.lccv90
-            elif validation == "90lccv-flex":
-                self.validation_func = self.lccv90flex
+        if validation == "cv":
+            if train_size == 0.8:
+                num_folds = 5
+            elif train_size == 0.9:
+                num_folds = 10
             else:
-                raise ValueError(f"Unsupported validation function {validation}.")
+                raise ValueError(f"Cannot run cross-validation for train_size {train_size}. Must be 0.8 or 0.9.")
+            self.validation_func = lambda pl, seed: self.cv(pl, seed, num_folds)
+        elif "lccv" in validation:
+            
+            is_flex = "flex" in validation
+            
+            self.r = 1.0
+            if train_size == 0.8:
+                self.validation_func = self.lccv80flex if is_flex else self.lccv80
+            elif train_size == 0.9:
+                self.validation_func = self.lccv90flex if is_flex else self.lccv90
+            else:
+                raise ValueError(f"Cannot run LCCV for train_size {train_size}. Must be 0.8 or 0.9.")
         else:
             raise ValueError(f"Unsupported validation function {validation}.")
         self.timeout_per_evaluation = timeout_per_evaluation
@@ -379,21 +382,31 @@ class VerticalEvaluator(Evaluator):
             
             validation_start = time.time()
             temp_pipe = self.get_pipeline_from_descriptor(learner)
-            score = self.validation_func(temp_pipe, seed=13 * self.seed + i)
-            runtime = time.time() - validation_start
-            validation_times.append(runtime)
-            eval_logger.info(f"Observed score {score} for {format_learner(temp_pipe)}. Validation took {int(np.round(runtime * 1000))}ms")
-            r = min(r, score + self.epsilon)
-            eval_logger.info(f"r is now: {r}")
-            if score < best_score:
-                best_score = score
-                chosen_learner = temp_pipe
-                index_of_best_learner = i
-                eval_logger.info(f"Thas was a NEW BEST score. r has been updated. In other words, currently chosen model is {format_learner(chosen_learner)}")
-            else:
+            try:
+                score = self.validation_func(temp_pipe, seed=13 * self.seed + i)
+                eval_logger.info(f"Observed score {score} for {format_learner(temp_pipe)}. Validation took {int(np.round(runtime * 1000))}ms")
+                r = min(r, score + self.epsilon)
+                eval_logger.info(f"r is now: {r}")
+                if score < best_score:
+                    best_score = score
+                    chosen_learner = temp_pipe
+                    index_of_best_learner = i
+                    eval_logger.info(f"Thas was a NEW BEST score. r has been updated. In other words, currently chosen model is {format_learner(chosen_learner)}")
+                else:
+                    del temp_pipe
+                    gc.collect()
+                    eval_logger.info(f"Candidate was NOT competitive. Eliminating the object and garbage collecting.")
+                
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
                 del temp_pipe
                 gc.collect()
-                eval_logger.info(f"Candidate was NOT competitive. Eliminating the object and garbage collecting.")
+                exp_logger.info(f"Candidate was unsuccessful, deleting it from memory.")
+                
+            runtime = time.time() - validation_start
+            validation_times.append(runtime)
+            
         eval_logger.info(f"Chosen learner was found in iteration {index_of_best_learner + 1}")
         return chosen_learner
 

@@ -218,7 +218,6 @@ class EmpiricalLearningModel:
         sizes = sorted(list(pd.unique(self.df["trainsize"])))
         scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate_" + ("test" if validation_curve else "train")]) for s in sizes]
         weights = [2**i for i in range(len(sizes))]
-        print(weights)
         def mmf(beta):
             a, b, c, d = tuple(beta.astype(float))
             fun = lambda x: (a * b + c * x ** d)/(b + x ** d)
@@ -419,7 +418,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                         break
         
         if elm.get_worst_train_score() > r:
-            print(f"Train curve has value {elm.get_worst_train_score()} that is already worse than r = {r}. Stopping.")
+            logger.info(f"Train curve has value {elm.get_worst_train_score()} that is already worse than r = {r}. Stopping.")
             break
         
         # after the last stage, we dont need any more tests

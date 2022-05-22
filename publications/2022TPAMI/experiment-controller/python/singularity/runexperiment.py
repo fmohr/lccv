@@ -13,9 +13,11 @@ def parse_args():
     parser.add_argument('--experiment_idx', type=int)
     parser.add_argument('--num_seeds', type=int)
     parser.add_argument('--dataset_id', type=int)
-    parser.add_argument('--algorithm', type=str, choices=['10cv', '5cv', '80lccv', '90lccv', '80lccv-flex', '90lccv-flex', '80wilcoxon', '90wilcoxon', '80sh', '90sh'])
+    parser.add_argument('--train_size', type=float, default=0.9)
+    parser.add_argument('--algorithm', type=str, choices=['cv', 'lccv', 'lccv-flex', 'wilcoxon', 'sh'])
     parser.add_argument('--seed', type=int)
     parser.add_argument('--timeout', type=int, default=300)
+    parser.add_argument('--final_repeats', type=int, default=1000)
     parser.add_argument('--num_pipelines', type=int, default=1000)
     parser.add_argument('--folder', type=str, default=os.path.expanduser(default_path))
     parser.add_argument('--prob_dp', type=float, default=0.5)
@@ -23,8 +25,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str, prob_dp: float, prob_fp: float):
+def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str, prob_dp: float, prob_fp: float, final_repeats: int):
     # TODO: built in check whether file already exists, in that case we can skipp
+    
+    if train_size < 0.05 or train_size > 0.95:
+        raise ValueError(f"train_size must be between 0.05 and 0.95 but is {train_size}.")
     
     # CPU
     print("CPU Settings:")
@@ -65,6 +70,7 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     exp_logger.info("Starting python script")
     exp_logger.info(f"""Running experiment under following conditions:
     OpenML id: {openmlid}
+    Maximum Training Portion: {train_size}
     Algorithm: {algorithm}
     Seed: {seed}
     timeout (per single evaluation):  {timeout}
@@ -105,17 +111,18 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
     
-    if algorithm in ["80sh", "90sh"]:
-        if algorithm == "80sh":
+    if algorithm == "sh":
+        max_train_size = train_size
+        if train_size == 0.8:
             repeats = 5
-            max_train_size = 0.8
-        else:
+        elif train_size == 0.9:
             repeats = 10
-            max_train_size = 0.9
+        else:
+            raise ValueError(f"train_size for sh must be 0.8 or 0.9 since the number of repetitions is not well-defined otherwise.")
             
         selector = SH(X, y, binarize_sparse, timeout, max_train_budget = max_train_size, seed=seed, repeats = repeats)
     else:
-        selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, timeout, epsilon = 0.01, seed=seed)
+        selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed)
     
     # run selector
     time_start = time.time()
@@ -125,14 +132,15 @@ def run_experiment(openmlid: int, algorithm: str, num_pipelines: int, seed: int,
     if model is not None:
         
         # compute validation performance of selection
-        error_rates = selector.mccv(model, target_size=.9, timeout=None, seed=seed, repeats = 100)
-        error_rate = np.nanmean(error_rates)
+        error_rates = selector.mccv(model, target_size=train_size, timeout=None, seed=seed, repeats = final_repeats)
+        error_rates = [r for r in error_rates if not np.isnan(r)]
+        error_rate = np.mean(error_rates)
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
             Model: {model}
             Error Rate: {error_rate}
             Runtime: {runtime}
-            Results in final evaluation: {np.array(error_rates)}""")
+            {len(error_rates)}/{final_repeats} valid results in final evaluation: {np.array(error_rates)}""")
     else:
         exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
@@ -164,8 +172,8 @@ def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_p
 if __name__ == '__main__':
     args = parse_args()
     if args.dataset_id is not None and args.algorithm is not None and args.seed is not None:
-        run_experiment(args.dataset_id, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp)
+        run_experiment(args.dataset_id, args.train_size, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp, args.final_repeats)
     elif args.experiment_idx is not None and args.num_seeds is not None and args.algorithm is not None:
         run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout, args.prob_dp, args.prob_fp)
     else:
-        raise ValueError('Wrong set of arguments provided. Specify either\n\t--dataset_id=.. --algorithm=.. --seed=..  or\n\t--experiment_idx=.. --algorithm=.. --num_seeds=.. ')
+        raise ValueError('Wrong set of arguments provided. Specify either\n\t--dataset_id=.. --train_size=.. --algorithm=.. --seed=..  or\n\t--experiment_idx=.. --algorithm=.. --num_seeds=.. ')

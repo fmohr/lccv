@@ -41,16 +41,18 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 			int numpipelines = Integer.valueOf(keys.get("numpipelines"));
 			String probDP = keys.get("prob_dp");
 			String probFP = keys.get("prob_fp");
+			String train_size = keys.get("train_size");
 			String algo = keys.get("algorithm");
 			String timeout = keys.get("timeout");
 			logger.info("\topenmlid: {}", openmlid);
+			logger.info("\ttrain_size: {}", train_size);
 			logger.info("\talgo: {}", algo);
 			logger.info("\tseed: {}", seed);
 			logger.info("\tnumpipelines: {}", numpipelines);
 			logger.info("\ttimeout: {}", timeout);
 
 			/* run python experiment */
-			String options = "--dataset_id=" + openmlid + " --algorithm=" + algo + " --seed=" + seed + " --num_pipelines=" + numpipelines + " --timeout=" + timeout + " --prob_dp=" + probDP + " --prob_fp=" + probFP;
+			String options = "--dataset_id=" + openmlid + " --train_size=" + train_size + " --algorithm=" + algo + " --seed=" + seed + " --num_pipelines=" + numpipelines + " --timeout=" + timeout + " --prob_dp=" + probDP + " --prob_fp=" + probFP;
 			JsonNode results = getPythonExperimentResults(options);
 			logger.info("Obtained result json node: {}", results);
 
