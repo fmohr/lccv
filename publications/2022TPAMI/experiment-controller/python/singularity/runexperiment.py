@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--algorithm', type=str, choices=['cv', 'lccv', 'lccv-flex', 'wilcoxon', 'sh'])
     parser.add_argument('--seed', type=int)
     parser.add_argument('--timeout', type=int, default=300)
-    parser.add_argument('--final_repeats', type=int, default=1000)
+    parser.add_argument('--final_repeats', type=int, default=100)
     parser.add_argument('--num_pipelines', type=int, default=1000)
     parser.add_argument('--folder', type=str, default=os.path.expanduser(default_path))
     parser.add_argument('--prob_dp', type=float, default=0.5)
