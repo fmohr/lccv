@@ -358,7 +358,7 @@ class VerticalEvaluator(Evaluator):
         try:
             enforce_all_anchor_evaluations = self.r == 1
             pl = Pipeline(self.mandatory_pre_processing + pl.steps)
-            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False, visualize_lcs = True)[0]
+            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=False, visualize_lcs = False)[0]
             self.r = min(self.r, score)
             return score
         except KeyboardInterrupt:

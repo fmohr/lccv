@@ -114,9 +114,8 @@ class EmpiricalLearningModel:
     def get_values_at_anchor(self, anchor, test_scores = True):
         return self.df[self.df["trainsize"] == anchor]["error_rate_" + ("test" if test_scores else "train")].values
     
-    def get_worst_train_score(self):
-        curve = self.get_mean_curve(False)
-        return max(curve[1])
+    def get_best_worst_train_score(self):
+        return max([min(g) for i, g in self.df.groupby("trainsize")["error_rate_train"]])
     
     def get_mean_performance_at_anchor(self, anchor, test_scores = True):
         return np.mean(self.get_values_at_anchor(anchor, test_scores = test_scores))
@@ -417,8 +416,8 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                         repair_convexity = True
                         break
         
-        if elm.get_worst_train_score() > r:
-            logger.info(f"Train curve has value {elm.get_worst_train_score()} that is already worse than r = {r}. Stopping.")
+        if elm.get_best_worst_train_score() > r:
+            logger.info(f"Train curve has value {elm.get_best_worst_train_score()} that is already worse than r = {r}. Stopping.")
             break
         
         # after the last stage, we dont need any more tests
@@ -478,7 +477,8 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") for s_t in schedule]))
     
     # return result depending on observations and configuration
-    if len(estimates) == 0:
+    if len(estimates) == 0 or elm.get_best_worst_train_score() > r:
+        logger.info(f"Observed no result or a train performance that is worse than r. In either case, returning nan.")
         return np.nan, np.nan, dict(), elm
     elif len(estimates) < 3:
         max_anchor = max([int(k) for k in estimates])
