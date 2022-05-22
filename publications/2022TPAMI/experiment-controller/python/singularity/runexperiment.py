@@ -133,7 +133,7 @@ def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelin
         
         # compute validation performance of selection
         error_rates = selector.mccv(model, target_size=train_size, timeout=None, seed=seed, repeats = final_repeats)
-        error_rates = [r for r in error_rates if not np.isnan(r)]
+        error_rates = [np.round(r, 4) for r in error_rates if not np.isnan(r)]
         error_rate = np.mean(error_rates)
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
