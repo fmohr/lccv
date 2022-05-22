@@ -217,7 +217,6 @@ class SH(Evaluator):
         def get_scores_on_budget(candidates, budget):
             scores = []
             for candidate in tqdm(candidates):
-
                 deadline = None if timeout is None else time.time() + timeout
 
                 temp_pipe = self.get_pipeline_from_descriptor(candidate)
@@ -225,13 +224,21 @@ class SH(Evaluator):
                 for i in range(self.repeats):
                     if deadline < time.time():
                         break
-                    X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(self.X, self.y, train_size = budget, test_size = test_budget)
-                    error_rate = self.eval_pipeline_on_fold(temp_pipe, X_train, X_test, y_train, y_test, deadline - time.time())
-                    if not np.isnan(error_rate):
-                        scores_for_candidate_at_budget.append(np.round(error_rate, 4))
-                    else:
+                    try:
+                        X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(self.X, self.y, train_size = budget, test_size = test_budget)
+                        error_rate = self.eval_pipeline_on_fold(temp_pipe, X_train, X_test, y_train, y_test, deadline - time.time())
+                        if not np.isnan(error_rate):
+                            scores_for_candidate_at_budget.append(np.round(error_rate, 4))
+                        else:
+                            scores_for_candidate_at_budget.append(np.nan)
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as e:
+                        print(f"There was an error in the evaluation of candidate {candidate}. Ignoring it. Error: {e}")
                         scores_for_candidate_at_budget.append(np.nan)
+                
                 scores.append(scores_for_candidate_at_budget)
+                
             return scores
 
         time_start = time.time()
@@ -240,9 +247,12 @@ class SH(Evaluator):
             time_start_phase = time.time()
             scores_in_round = get_scores_on_budget(population, anchor)
             runtime_phase = time.time() - time_start_phase
-            mean_scores = [np.nanmean(s) for s in scores_in_round]
+            mean_scores_tmp = [np.nanmean(s) if np.count_nonzero(np.isnan(s)) < len(s) else np.nan for s in scores_in_round]
+            if all(np.isnan(mean_scores_tmp)):
+                print("All candidates evalated nan in last round, aborting evaluation.")
+                break
+            mean_scores = mean_scores_tmp
             index_of_best_mean_score_in_round = np.nanargmin(mean_scores)
-            print(index_of_best_mean_score_in_round)
             best_mean_score_in_round = mean_scores[index_of_best_mean_score_in_round]
             if best_mean_score_in_round < best_seen_score:
                 best_seen_score = best_mean_score_in_round
@@ -255,8 +265,7 @@ class SH(Evaluator):
                 population = [p for j, p in enumerate(population) if j in best_indices]
         runtime = time.time () - time_start
 
-        index_of_winner = np.argmin(mean_scores)
-        return self.get_pipeline_from_descriptor(population[index_of_winner])
+        return self.get_pipeline_from_descriptor(best_seen_pl)
     
 
 class VerticalEvaluator(Evaluator):
@@ -299,7 +308,9 @@ class VerticalEvaluator(Evaluator):
             X_test, y_test = self.X[test_index], self.y[test_index]
             timeout_loc = None if deadline is None else deadline - time.time()
             scores.append(self.eval_pipeline_on_fold(pl, X_train, X_test, y_train, y_test, timeout = timeout_loc))
-        out = np.nanmean(scores) if scores else np.nan
+        require_at_least_two = time.time() < deadline
+        is_valid_result = len(scores) > 0 and ((not require_at_least_two) or np.count_nonzero(np.isnan(scores)) < folds - 1)
+        out = np.nanmean(scores) if is_valid_result else np.nan # require at least two valid samples in the batch if the timeout was not hit
         eval_logger.info(f"Returning {out} as the avg over observed scores {scores}")
         return out
 
@@ -384,6 +395,7 @@ class VerticalEvaluator(Evaluator):
             temp_pipe = self.get_pipeline_from_descriptor(learner)
             try:
                 score = self.validation_func(temp_pipe, seed=13 * self.seed + i)
+                runtime = time.time() - validation_start
                 eval_logger.info(f"Observed score {score} for {format_learner(temp_pipe)}. Validation took {int(np.round(runtime * 1000))}ms")
                 r = min(r, score + self.epsilon)
                 eval_logger.info(f"r is now: {r}")
@@ -403,8 +415,8 @@ class VerticalEvaluator(Evaluator):
                 del temp_pipe
                 gc.collect()
                 exp_logger.info(f"Candidate was unsuccessful, deleting it from memory.")
+                runtime = time.time() - validation_start
                 
-            runtime = time.time() - validation_start
             validation_times.append(runtime)
             
         eval_logger.info(f"Chosen learner was found in iteration {index_of_best_learner + 1}")
