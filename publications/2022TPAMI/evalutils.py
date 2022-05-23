@@ -91,7 +91,7 @@ class Evaluator:
         try:
             pl = Pipeline(self.mandatory_pre_processing + sklearn.base.clone(pl).steps)
             
-            h1_before, h2_before = hash(X_train), hash(X_test)
+            h1_before, h2_before = hash(X_train.tostring()), hash(X_test.tostring())
             if timeout is None:
                 eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and without timeout.")
                 pl.fit(X_train, y_train)
@@ -102,7 +102,7 @@ class Evaluator:
             y_hat = pl.predict(X_test)
             error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
             eval_logger.info(f"Observed an error rate of {error_rate}")
-            h1_after, h2_after = hash(X_train), hash(X_test)
+            h1_after, h2_after = hash(X_train.tostring()), hash(X_test.tostring())
             if h1_before != h1_after or h2_before != h2_after:
                 raise Exception("Pipeline has modified the original data, which is forbidden!")
             return error_rate
