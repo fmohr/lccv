@@ -71,7 +71,7 @@ class Evaluator:
         numeric_transformer = Pipeline([("imputer", sklearn.impute.SimpleImputer(strategy="median"))])
         categorical_features = [i for i in range(X.shape[1]) if i not in numeric_features]
         missing_values_per_feature = np.sum(pd.isnull(X), axis=0)
-        eval_logger.info(f"There are {len(categorical_features)} categorical features, which will be binarized.")
+        eval_logger.info(f"There are {len(categorical_features)} categorical features, which will be binarized. Numbers of values per feature:" + "".join(["\n\t" + str(f) + ": " + str(len(pd.np.unique(X[:,c]))) for c, f in enumerate(categorical_features)]))
         eval_logger.info(f"Missing values for the different attributes are {missing_values_per_feature}.")
         if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
             categorical_transformer = Pipeline([

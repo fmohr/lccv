@@ -107,7 +107,18 @@ def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelin
     
     # creating learner sequence
     sampler = PipelineSampler("searchspace.json", X, y, seed, dp_proba = prob_dp, fp_proba = prob_fp)
-    test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]
+    
+    print(f"Checking that no pipeline contains a copy or warm-starting parameter!")
+    for i in tqdm(range(num_pipelines)):
+        pl = sampler.sample(do_build=True)
+        pl_str = str(pl)
+        if "copy" in pl_str:
+            raise Exception(f"{i+1}-th pipeline has a copy command! Full pipeline description: {pl_str}")
+        if "warm_start" in pl_str:
+            raise Exception(f"{i+1}-th pipeline has a warm-start command! Full pipeline description: {pl_str}")
+    
+    test_learners = [sampler.sample(do_build=False) for i in range(num_pipelines)]    
+    
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
     
     
