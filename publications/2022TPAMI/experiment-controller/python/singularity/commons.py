@@ -217,7 +217,7 @@ def compile_pipeline_by_class_and_params(clazz, params, X, y):
         return sklearn.feature_selection.SelectPercentile(score_func=score_func, percentile=percentile)
     
     if clazz == sklearn.preprocessing.RobustScaler:
-        return sklearn.preprocessing.RobustScaler(quantile_range=(params["q_min"], params["q_max"]), copy=False,)
+        return sklearn.preprocessing.RobustScaler(quantile_range=(params["q_min"], params["q_max"]), copy=True,)
     
     if clazz == sklearn.decomposition.PCA:
         n_components = float(params["keep_variance"])
@@ -309,8 +309,6 @@ def compile_pipeline_by_class_and_params(clazz, params, X, y):
         tol = float(params["tol"])
         max_iter = float(params["max_iter"])
         shrinking = check_for_bool(params["shrinking"])
-        
-        print(kernel, "PROBA")
 
         return sklearn.svm.SVC(C=C, kernel=kernel,degree=degree,gamma=gamma,coef0=coef0,shrinking=shrinking,tol=tol, max_iter=max_iter, decision_function_shape='ovr', probability=True)
     

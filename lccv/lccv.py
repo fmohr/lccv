@@ -79,8 +79,11 @@ class EmpiricalLearningModel:
             X_train, y_train, X_test, y_test = _partition_train_test_data(self.X, self.y, self.n_test, self.active_seed)
         
         indices = np.random.choice(X_train.shape[0], size, replace=False)
-        X_train = X_train[indices].copy() # these copy actions could maybe be inefficient but are currently required to be stable w.r.t. the copy=false option for some pre-processors
-        y_train = y_train[indices].copy()
+        X_train = X_train[indices]
+        y_train = y_train[indices]
+        
+        hash_before = hash(X_train.tostring())
+        
         
         self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape}. Timeout is {timeout}")
         start = time.time()
@@ -90,12 +93,15 @@ class EmpiricalLearningModel:
             func_timeout.func_timeout(timeout, learner_inst.fit, (X_train, y_train))
         end = time.time()
         self.logger.debug(f"Training ready after {int((end - start) * 1000)}ms. Now obtaining predictions.")
-        y_hat = learner_inst.predict(X_test.copy())
+        y_hat = learner_inst.predict(X_test)
         error_rate_test = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-        y_hat = learner_inst.predict(X_train.copy())
+        y_hat = learner_inst.predict(X_train)
         error_rate_train = 1 - sklearn.metrics.accuracy_score(y_train, y_hat)
         end = time.time()
         self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate_test}.")
+        hash_after = hash(X_train.tostring())
+        if hash_before != hash_after:
+            raise Exception("Evaluation of pipeline has changed the data. Please make sure to evaluate pipelines that do not change the data in place.")
         return error_rate_train, error_rate_test
     
     def compute_and_add_sample(self, size, seed=None, timeout=None, verbose=False):

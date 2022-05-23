@@ -91,6 +91,7 @@ class Evaluator:
         try:
             pl = Pipeline(self.mandatory_pre_processing + sklearn.base.clone(pl).steps)
             
+            h1_before, h2_before = hash(X_train), hash(X_test)
             if timeout is None:
                 eval_logger.info(f"Fitting model with {X_train.shape[0]} instances and without timeout.")
                 pl.fit(X_train, y_train)
@@ -101,6 +102,9 @@ class Evaluator:
             y_hat = pl.predict(X_test)
             error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
             eval_logger.info(f"Observed an error rate of {error_rate}")
+            h1_after, h2_after = hash(X_train), hash(X_test)
+            if h1_before != h1_after or h2_before != h2_after:
+                raise Exception("Pipeline has modified the original data, which is forbidden!")
             return error_rate
         
         except FunctionTimedOut:
@@ -138,9 +142,9 @@ class Evaluator:
             mask_train[indices_train] = 1
             mask_train = mask_train.astype(bool)
             mask_test = (1 - mask_train).astype(bool)
-            X_train = self.X[mask_train].copy()
+            X_train = self.X[mask_train]
             y_train = self.y[mask_train]
-            X_test = self.X[mask_test].copy()
+            X_test = self.X[mask_test]
             y_test = self.y[mask_test]
             
             # evaluate pipeline
@@ -148,6 +152,8 @@ class Evaluator:
             error_rate = self.eval_pipeline_on_fold(learner, X_train, X_test, y_train, y_test, timeout=timeout_local)
             scores.append(error_rate)
             seed += 1
+            del X_train, X_test
+        gc.collect()
 
         return scores
     
@@ -383,16 +389,16 @@ class VerticalEvaluator(Evaluator):
         target_anchor_count = 0
         learner_crash_count = 0
         for i, learner in enumerate(learners):
+            temp_pipe = self.get_pipeline_from_descriptor(learner)
             exp_logger.info(f"""
                 --------------------------------------------------
-                Checking learner {i + 1}/{n} ({format_learner(learner)})
+                Checking learner {i + 1}/{n} (""" + str(temp_pipe).replace("\n", "").replace("\t", "").replace(" ", "").replace(" ", "").replace(" ", "").replace(" ", "").replace(" ", "").replace(" ", "").replace(" ", "").replace(" ", "") + """)
                 --------------------------------------------------""")
             cur_mem = int(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024)
             memory_history.append(cur_mem)
             exp_logger.info(f"Currently used memory: {cur_mem}MB. Memory history is: {memory_history}")
             
             validation_start = time.time()
-            temp_pipe = self.get_pipeline_from_descriptor(learner)
             try:
                 score = self.validation_func(temp_pipe, seed=13 * self.seed + i)
                 runtime = time.time() - validation_start
@@ -437,9 +443,9 @@ def wilcoxon(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=Non
         mask_train[indices_train] = 1
         mask_train = mask_train.astype(bool)
         mask_test = (1 - mask_train).astype(bool)
-        X_train = X[mask_train].copy()
+        X_train = X[mask_train]
         y_train = y[mask_train]
-        X_test = X[mask_test].copy()
+        X_test = X[mask_test]
         y_test = y[mask_test]
         learner_inst = sklearn.base.clone(learner_inst)
 
