@@ -139,7 +139,9 @@ def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelin
     time_start = time.time()
     model = selector.select_model(test_learners)
     runtime = time.time() - time_start
-
+    
+    print("\n-------------------\n\n")
+    
     if model is not None:
         
         # compute validation performance of selection

@@ -130,6 +130,9 @@ class EmpiricalLearningModel:
         anchors = sorted(pd.unique(self.df["trainsize"]))
         return anchors, [self.get_mean_performance_at_anchor(a, test_scores = test_scores) for a in anchors]
     
+    def get_runtimes_at_anchor(self, anchor):
+        return self.df[self.df["trainsize"] == anchor]["runtime"].values
+    
     def get_conf_interval_size_at_target(self, target):
         if len (self.df[self.df["trainsize"] == target]) == 0:
             return 1
@@ -422,9 +425,14 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                         repair_convexity = True
                         break
         
-        if elm.get_best_worst_train_score() > r:
-            logger.info(f"Train curve has value {elm.get_best_worst_train_score()} that is already worse than r = {r}. Stopping.")
-            break
+        # check training curve
+        if use_train_curve != False:
+            
+            check_training_curve = (type(use_train_curve) == bool) or (callable(use_train_curve) and use_train_curve(learner_inst, s_t))
+            
+            if check_training_curve and elm.get_best_worst_train_score() > r:
+                logger.info(f"Train curve has value {elm.get_best_worst_train_score()} that is already worse than r = {r}. Stopping.")
+                break
         
         # after the last stage, we dont need any more tests
         if t == T:
@@ -473,14 +481,14 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             logger.info(f"Finished schedule on {s_t}, and t is now {t}. Performance: {elm.get_normal_estimates(s_t, 4)}.")
             if t < T:
                 estimates = elm.get_normal_estimates()
-                logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]))
+                logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule]))
                 if t > 2:
                     logger.debug(f"Estimate for target size {target_anchor}: {elm.get_performance_interval_at_target(target_anchor)[1]}")
     
     # output final reports
     toc = time.time()
     estimates = elm.get_normal_estimates()
-    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") for s_t in schedule]))
+    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule]))
     
     # return result depending on observations and configuration
     if len(estimates) == 0 or elm.get_best_worst_train_score() > r:
