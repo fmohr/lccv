@@ -16,6 +16,7 @@ def parse_args():
     parser.add_argument('--train_size', type=float, default=0.9)
     parser.add_argument('--algorithm', type=str, choices=['cv', 'lccv', 'lccv-flex', 'wilcoxon', 'sh'])
     parser.add_argument('--seed', type=int)
+    parser.add_argument('--max_memory', type=int, default=14) # allowed memory in GB
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--final_repeats', type=int, default=100)
     parser.add_argument('--num_pipelines', type=int, default=1000)
@@ -25,7 +26,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str, prob_dp: float, prob_fp: float, final_repeats: int):
+def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelines: int, seed: int, timeout: int, folder: str, prob_dp: float, prob_fp: float, final_repeats: int, max_memory: int):
     # TODO: built in check whether file already exists, in that case we can skipp
     
     if train_size < 0.05 or train_size > 0.95:
@@ -37,7 +38,7 @@ def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelin
         print(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
         
     # memory limits
-    memory_limit = 14 * 1024
+    memory_limit = max_memory * 1024
     print("Setting memory limit to " + str(memory_limit) + "MB")
     soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
     resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
@@ -85,7 +86,7 @@ def run_experiment(openmlid: int, train_size: float, algorithm: str, num_pipelin
         exp_logger.info(f"\t{v}: {os.environ[v] if v in os.environ else 'n/a'}")
         
     # memory limits
-    memory_limit = 14 * 1024
+    memory_limit = max_memory * 1024
     exp_logger.info("Setting memory limit to " + str(memory_limit) + "MB")
     soft, hard = resource.getrlimit(resource.RLIMIT_AS) 
     resource.setrlimit(resource.RLIMIT_AS, (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024)) 
@@ -185,7 +186,7 @@ def run_experiment_index_based(index: int, num_seeds: int, algorithm: str, num_p
 if __name__ == '__main__':
     args = parse_args()
     if args.dataset_id is not None and args.algorithm is not None and args.seed is not None:
-        run_experiment(args.dataset_id, args.train_size, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp, args.final_repeats)
+        run_experiment(args.dataset_id, args.train_size, args.algorithm, args.num_pipelines, args.seed, args.timeout, args.folder, args.prob_dp, args.prob_fp, args.final_repeats, args.max_memory)
     elif args.experiment_idx is not None and args.num_seeds is not None and args.algorithm is not None:
         run_experiment_index_based(args.experiment_idx, args.num_seeds, args.algorithm, args.num_pipelines, args.timeout, args.prob_dp, args.prob_fp)
     else:

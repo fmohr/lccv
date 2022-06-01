@@ -30,6 +30,12 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 	private static final Logger logger = LoggerFactory.getLogger("experimenter");
 
+	private final int allowedMemoryForPython;
+
+	public ExperimentRunner(final int allowedMemoryForPython) {
+		this.allowedMemoryForPython = allowedMemoryForPython;
+	}
+
 	@Override
 	public void evaluate(final ExperimentDBEntry experimentEntry, final IExperimentIntermediateResultProcessor processor) throws ExperimentEvaluationFailedException, ExperimentFailurePredictionException, InterruptedException {
 		try {
@@ -50,9 +56,10 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 			logger.info("\tseed: {}", seed);
 			logger.info("\tnumpipelines: {}", numpipelines);
 			logger.info("\ttimeout: {}", timeout);
+			logger.info("\tmax memory for python: {}GB", this.allowedMemoryForPython);
 
 			/* run python experiment */
-			String options = "--dataset_id=" + openmlid + " --train_size=" + train_size + " --algorithm=" + algo + " --seed=" + seed + " --num_pipelines=" + numpipelines + " --timeout=" + timeout + " --prob_dp=" + probDP + " --prob_fp=" + probFP;
+			String options = "--dataset_id=" + openmlid + " --train_size=" + train_size + " --algorithm=" + algo + " --seed=" + seed + " --num_pipelines=" + numpipelines + " --timeout=" + timeout + " --prob_dp=" + probDP + " --prob_fp=" + probFP + " --max_memory=" + this.allowedMemoryForPython;
 			JsonNode results = getPythonExperimentResults(options);
 			logger.info("Obtained result json node: {}", results);
 
@@ -110,9 +117,10 @@ public class ExperimentRunner implements IExperimentSetEvaluator {
 
 		String databaseconf = args[0];
 		String jobInfo = args[1];
+		Integer allowedMemoryForPython = Integer.parseInt(args[2]);
 
 		/* setup experimenter frontend */
-		ExperimenterFrontend fe = new ExperimenterFrontend().withEvaluator(new ExperimentRunner()).withExperimentsConfig(new File("conf/experiments.conf")).withDatabaseConfig(new File(databaseconf));
+		ExperimenterFrontend fe = new ExperimenterFrontend().withEvaluator(new ExperimentRunner(allowedMemoryForPython)).withExperimentsConfig(new File("conf/experiments.conf")).withDatabaseConfig(new File(databaseconf));
 		fe.setLoggerName("frontend");
 		fe.withExecutorInfo(jobInfo);
 
