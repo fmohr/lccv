@@ -306,6 +306,15 @@ class VerticalEvaluator(Evaluator):
                 self.validation_func = self.lccv90flex if is_flex else self.lccv90
             else:
                 raise ValueError(f"Cannot run LCCV for train_size {train_size}. Must be 0.8 or 0.9.")
+        elif validation == "wilcoxon":
+            self.r = 1.0
+            self.best_observations = None
+            if train_size == 0.8:
+                self.validation_func = lambda pl, seed: self.wilcoxon(pl, seed = seed, folds = 5)
+            elif train_size == 0.9:
+                self.validation_func = lambda pl, seed: self.wilcoxon(pl, seed = seed, folds = 10)
+            else:
+                raise ValueError(f"Cannot run Wilcoxon for train_size {train_size}. Must be 0.8 or 0.9.")
         else:
             raise ValueError(f"Unsupported validation function {validation}.")
         self.timeout_per_evaluation = timeout_per_evaluation
@@ -328,7 +337,48 @@ class VerticalEvaluator(Evaluator):
         out = np.nanmean(scores) if is_valid_result else np.nan # require at least two valid samples in the batch if the timeout was not hit
         eval_logger.info(f"Returning {out} as the avg over observed scores {scores}")
         return out
+    
+    def wilcoxon(self, pl, seed=0, folds = 10):
 
+        eval_logger.info(f"Running Wilcoxon-guarded CV with seed  {seed}")
+        if not self.timeout_per_evaluation is None:
+            deadline = time.time() + self.timeout_per_evaluation
+        
+        kf = sklearn.model_selection.KFold(n_splits=folds, random_state=np.random.RandomState(seed), shuffle=True)
+        scores = []
+        deadline = time.time() + self.timeout_per_evaluation if self.timeout_per_evaluation is not None else None
+        for inner_run, (train_index, test_index) in enumerate(kf.split(self.X)):
+            learner_inst_copy = sklearn.base.clone(pl)
+            X_train, y_train = self.X[train_index], self.y[train_index]
+            X_test, y_test = self.X[test_index], self.y[test_index]
+            timeout_loc = None if deadline is None else deadline - time.time()
+            scores.append(self.eval_pipeline_on_fold(pl, X_train, X_test, y_train, y_test, timeout = timeout_loc))
+
+            # now conduct a wilcoxon signed rank test to determine whether significance has been reached
+            scores_currently_best = np.array(self.best_observations[:len(scores)]) if self.best_observations is not None else np.ones(len(scores))
+            eval_logger.info(f"Currently best observations after {inner_run + 1} evaluations: {np.round(scores_currently_best, 2)}")
+            eval_logger.info(f"Current cand.  observations after {inner_run + 1} evaluations: {np.round(scores, 2)}")
+            if any(np.array(scores) != scores_currently_best):
+                statistic, pval = scipy.stats.wilcoxon(scores, scores_currently_best)
+                eval_logger.info(f"p-value is {pval}")
+                if pval < 0.05:
+                    eval_logger.info(f"reached certainty in fold {inner_run + 1}.")
+                    if np.mean(scores) > self.r:
+                        eval_logger.info("it is certainly worse, so aborting.")
+                        break
+                    else:
+                        eval_logger.info("it is certainly better, so continuing")
+            else:
+                eval_logger.info("omitting test, because all scores are still identical")
+        require_at_least_two = time.time() < deadline
+        is_valid_result = len(scores) > 0 and ((not require_at_least_two) or np.count_nonzero(np.isnan(scores)) < folds - 1)
+        out = np.nanmean(scores) if is_valid_result else np.nan # require at least two valid samples in the batch if the timeout was not hit
+        if not np.isnan(out) and out < self.r:
+            self.r = out
+            self.best_observations = scores
+        eval_logger.info(f"Returning {out} as the avg over observed scores {scores}")
+        return out
+    
     def lccv90(self, pl, seed): # maximum train size is 90% of the data (like for 10CV)
         try:
             enforce_all_anchor_evaluations = self.r == 1
@@ -382,7 +432,7 @@ class VerticalEvaluator(Evaluator):
             eval_logger.info(f"Observed some exception. Returning nan. Exception was {e}")
             return np.nan
     
-    def select_model(self, learners):
+    def select_model(self, learners, errors = "ignore"):
         
         hard_cutoff = 2 * self.timeout_per_evaluation
         r = 1.0
@@ -432,93 +482,13 @@ class VerticalEvaluator(Evaluator):
                 exp_logger.info(f"Candidate was unsuccessful, deleting it from memory.")
                 runtime = time.time() - validation_start
                 
+                if errors == "raise":
+                    raise e
+                
             validation_times.append(runtime)
             
         eval_logger.info(f"Chosen learner was found in iteration {index_of_best_learner + 1}")
         return chosen_learner
-
-    
-def wilcoxon80(learner, X, y, r = 1.0, seed = None, timeout = None):
-    return wilcoxon(learner, X, y, r = r, seed = seed, timeout = timeout, target_size=.8)
-    
-def wilcoxon(learner, X, y, target_size=.9, r = 0.0, min_stages = 3, timeout=None, seed=0, max_repeats = 10):
-    
-    def evaluate(learner_inst, X, y, num_examples, seed=0, timeout = None, verbose=False):
-        deadline = None if timeout is None else time.time() + timeout
-        random.seed(seed)
-        n = X.shape[0]
-        indices_train = random.sample(range(n), num_examples)
-        mask_train = np.zeros(n)
-        mask_train[indices_train] = 1
-        mask_train = mask_train.astype(bool)
-        mask_test = (1 - mask_train).astype(bool)
-        X_train = X[mask_train]
-        y_train = y[mask_train]
-        X_test = X[mask_test]
-        y_test = y[mask_test]
-        learner_inst = sklearn.base.clone(learner_inst)
-
-        eval_logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape} using seed {seed}.")
-        if deadline is None:
-            learner_inst.fit(X_train, y_train)
-        else:
-            func_timeout(deadline - time.time(), learner_inst.fit, (X_train, y_train))
-
-
-        y_hat = learner_inst.predict(X_test)
-        error_rate = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-        eval_logger.info(f"Training ready. Obtaining predictions for {X_test.shape[0]} instances. Error rate of model on {len(y_hat)} instances is {error_rate}")
-        return error_rate
-    
-    """
-    Conducts a 90/10 MCCV (imitating a bit a 10-fold cross validation)
-    """
-    eval_logger.info(f"Running mccv with seed  {seed}")
-    if not timeout is None:
-        deadline = time.time() + timeout
-    
-    scores = []
-    n = X.shape[0]
-    num_examples = int(target_size * n)
-    
-    seed *= 13
-    for inner_run in range(max_repeats):
-        eval_logger.info(f"Seed in Wilcoxon: {seed}. Training on {num_examples} examples. That is {np.round(100 * num_examples / X.shape[0])}% of the data (testing on rest).")
-        if timeout is None:
-            try:
-                scores.append(evaluate(learner, X, y, num_examples, seed))
-            except KeyboardInterrupt:
-                raise
-                
-            except:
-                eval_logger.info("AN ERROR OCCURRED, not counting this run!")
-        else:
-            try:
-                if deadline <= time.time():
-                    break
-                scores.append(func_timeout(deadline - time.time(), evaluate, (learner, X, y, num_examples, seed)))
-            except FunctionTimedOut:
-                break
-
-            except KeyboardInterrupt:
-                raise
-                
-            except:
-                eval_logger.info("AN ERROR OCCURRED, not counting this run!")
-            
-            # now conduct a wilcoxon signed rank test to determine whether significance has been reached
-            scores_currently_best = len(scores) * [r]
-            if any(np.array(scores) != np.array(scores_currently_best)):
-                statistic, pval = scipy.stats.wilcoxon(scores, scores_currently_best)
-                print(pval)
-                if pval < 0.05:
-                    print(f"reached certainty in fold {inner_run + 1}")
-                    break
-            else:
-                print("omitting test, because all scores are still identical")
-        seed += 1
-
-    return np.mean(scores) if len(scores) > 0 else np.nan, scores
     
 
     

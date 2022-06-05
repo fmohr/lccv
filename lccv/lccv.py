@@ -412,6 +412,9 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                 timeouted = True
                 logger.info("Observed timeout. Stopping LCCV.")
                 break
+            except Exception as e:
+                logger.info(f"Observed an exception at anchor {s_t}.\nRaising it to the outside and ignoring this candidate.\nThis is not necessarily a good strategy; depending on the exception, one should try the candidate again on the same or bigger data size, because this can be related to a too small sample size.\nThe exception was: {e}.")
+                raise
             
             # check wheter a repair is needed
             if num_evaluations_at_t >= min_evals_for_stability and t < T:
