@@ -111,6 +111,7 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
     epsilon = 0.0
     algorithm = "lccv-flex"
     train_size = 0.9
+    final_repeats = 100
     
     selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed)
     
