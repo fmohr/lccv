@@ -107,9 +107,8 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
                      range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
 
-    # run lccv
+    # run lccv according to the settings of the sensitivity study
     epsilon = 0.0
-    validators = [(lccv90flex, lambda r: r[0], config_map)]
     key = "lccv-flex"
     train_size = 0.9
     
