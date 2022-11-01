@@ -167,20 +167,20 @@ class EmpiricalLearningModel:
         ranges = []
         for i, size in enumerate(sizes):
             if i > 0:
-                s1 = sizes[i - 1]
-                s2 = sizes[i]
+                anchor_size_prev_last = sizes[i - 1]
+                anchor_size_last = sizes[i]
                 
-                if est[s1]["n"] > 1:
-                    lower_prev_last = est[s1]["conf"][0]
-                    upper_prev_last = est[s1]["conf"][1]
+                if est[anchor_size_prev_last]["n"] > 1:
+                    lower_prev_last = est[anchor_size_prev_last]["conf"][0]
+                    upper_prev_last = est[anchor_size_prev_last]["conf"][1]
                 else:
-                    lower_prev_last = upper_prev_last = est[s1]["mean"]
-                if est[s2]["n"] > 1:
-                    lower_last = est[s2]["conf"][0]
-                    upper_last = est[s2]["conf"][1]
+                    lower_prev_last = upper_prev_last = est[anchor_size_prev_last]["mean"]
+                if est[anchor_size_last]["n"] > 1:
+                    lower_last = est[anchor_size_last]["conf"][0]
+                    upper_last = est[anchor_size_last]["conf"][1]
                 else:
-                    lower_last = upper_last = est[s2]["mean"]
-                ranges.append((min(0, (upper_last - lower_prev_last) / (s2 - s1)), min(0, (lower_last - upper_prev_last) / (s2 - s1))))
+                    lower_last = upper_last = est[anchor_size_last]["mean"]
+                ranges.append((min(0, (lower_prev_last - upper_last) / (anchor_size_prev_last - anchor_size_last)), min(0, (upper_prev_last - lower_last) / (anchor_size_prev_last - anchor_size_last))))
         return ranges
     
     def get_slope_range_in_last_segment(self):
@@ -424,7 +424,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
                     slopes = elm.get_slope_ranges()
                     if len(slopes) < 2:
                         raise Exception(f"There should be two slope ranges for t > 2 (t is {t}), but we observed only 1.")
-                    if slopes[t - 2] < slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
+                    if slopes[t - 1] < slopes[t - 2] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
                         repair_convexity = True
                         break
         
