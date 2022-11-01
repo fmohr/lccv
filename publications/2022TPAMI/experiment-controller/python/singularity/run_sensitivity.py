@@ -109,7 +109,7 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
 
     # run lccv according to the settings of the sensitivity study
     epsilon = 0.0
-    key = "lccv-flex"
+    algorithm = "lccv-flex"
     train_size = 0.9
     
     selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed)
