@@ -149,7 +149,7 @@ def pipeline_args(index: int):
         value = values[index-3]
     elif index < 13:  # [11, 12]
         values = [False, True]
-        hyperparameter = 'return_estimate_on_incomplete_runs'
+        hyperparameter = 'use_train_curve'
         value = values[index-11]
     elif index < 17:  # 13, 14, 15, 16
         values = [0.10, 0.07, 0.04, 0.01]
