@@ -91,10 +91,10 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
                        (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024))
 
     # load data
-    exp_logger.info("Reading dataset")
+    binarize_sparse = openmlid in [1111, 41147, 41150, 42732, 42733]
+    exp_logger.info(f"Reading dataset. Will be binarized sparsely: {binarize_sparse}")
     X, y = get_dataset(openmlid)
-    exp_logger.info(
-        f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
+    exp_logger.info(f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
     if X.shape[0] <= 0:
         raise Exception("Dataset size invalid!")
     if X.shape[0] != len(y):
@@ -110,32 +110,40 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
     # run lccv
     epsilon = 0.0
     validators = [(lccv90flex, lambda r: r[0], config_map)]
-    key = "lccv90flex"
-
-    result = \
-    evaluate_validators(validators, test_learners, X, y, timeout, seed=seed,
-                        repeats=100, epsilon=epsilon)[key]
-    model = result[0]
-    runtime = result[1]
+    key = "lccv-flex"
+    train_size = 0.9
+    
+    selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed)
+    
+    # run selector
+    time_start = time.time()
+    model = selector.select_model(test_learners)
+    runtime = time.time() - time_start
+    
+    print("\n-------------------\n\n")
+    
     if model is not None:
-        error_rate = np.round(result[2][0], 4)
+        
+        # compute validation performance of selection
+        error_rates = selector.mccv(model, target_size=train_size, timeout=None, seed=seed, repeats = final_repeats)
+        error_rates = [np.round(r, 4) for r in error_rates if not np.isnan(r)]
+        error_rate = np.mean(error_rates)
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
             Model: {model}
             Error Rate: {error_rate}
             Runtime: {runtime}
-            Results in final evaluation: {np.round(result[2][1], 4)}""")
+            {len(error_rates)}/{final_repeats} valid results in final evaluation: {np.array(error_rates)}""")
     else:
         exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
         model_name = "None"
-
+        
     # write result
-    output = (model_name, error_rate, runtime, result[3], result[4])
-    with open(folder + "/results.txt", "w") as outfile:
+    output = (model_name, np.nanmean(error_rate), error_rates, runtime)
+    with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
-    exp_logger.info(
-        f"Experiment ready. Results written to {folder}/results.txt")
+    exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")
 
 
 def pipeline_args(index: int):
