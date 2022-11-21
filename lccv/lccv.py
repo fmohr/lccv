@@ -82,7 +82,7 @@ class EmpiricalLearningModel:
         X_train = X_train[indices]
         y_train = y_train[indices]
         
-        hash_before = hash(X_train.tostring())
+        hash_before = hash(X_train.tobytes())
         
         
         self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape}. Timeout is {timeout}")
@@ -99,7 +99,7 @@ class EmpiricalLearningModel:
         error_rate_train = 1 - sklearn.metrics.accuracy_score(y_train, y_hat)
         end = time.time()
         self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate_test}.")
-        hash_after = hash(X_train.tostring())
+        hash_after = hash(X_train.tobytes())
         if hash_before != hash_after:
             raise Exception("Evaluation of pipeline has changed the data. Please make sure to evaluate pipelines that do not change the data in place.")
         return error_rate_train, error_rate_test
@@ -454,8 +454,9 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             estimates = elm.get_normal_estimates()
             sizes = sorted(np.unique(elm.df["trainsize"]))
             i = -1
-            while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
-                i -= 1
+            if min_evals_for_stability > 1:
+                while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
+                    i -= 1
             last_size = s_t
             normal_estimates_last = estimates[last_size]
             last_conf = normal_estimates_last["conf"]

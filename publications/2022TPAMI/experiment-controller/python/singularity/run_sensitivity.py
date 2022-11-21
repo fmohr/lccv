@@ -113,16 +113,19 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
     train_size = 0.9
     final_repeats = 100
     
-    selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed)
+    selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed, other_args = config_map)
     
     # run selector
     time_start = time.time()
-    model = selector.select_model(test_learners)
+    model = selector.select_model(test_learners, errors="ignore")
     runtime = time.time() - time_start
     
     print("\n-------------------\n\n")
     
+    
     if model is not None:
+        
+        exp_logger.info(f"Model selection phase over after {int(runtime)}s. Now determining final performance as average of {final_repeats} MCCV runs.")
         
         # compute validation performance of selection
         error_rates = selector.mccv(model, target_size=train_size, timeout=None, seed=seed, repeats = final_repeats)
@@ -180,6 +183,7 @@ def run_experiment_index_based(args):
     seed = args.experiment_idx % args.num_seeds
     hyperparameter, value = pipeline_args(int(np.floor(args.experiment_idx / args.num_seeds)))
     config_map = {hyperparameter: value, 'verbose': True}
+    print(f"Config map: {config_map}")
     folder = os.path.expanduser('~/experiments/lccv_sensitivity/%d/%s/%s/%d' % (args.dataset_id, hyperparameter, str(value), seed))
     os.makedirs(folder, exist_ok=True)
     run_experiment(args.dataset_id, args.num_pipelines, seed, args.timeout, folder, args.prob_dp, args.prob_fp, config_map)
@@ -187,5 +191,6 @@ def run_experiment_index_based(args):
 
 if __name__ == '__main__':
     args = parse_args()
+    print(f"Args: {args}")
     run_experiment_index_based(args)
 

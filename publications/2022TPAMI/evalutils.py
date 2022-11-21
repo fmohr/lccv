@@ -285,8 +285,11 @@ class SH(Evaluator):
 
 class VerticalEvaluator(Evaluator):
     
-    def __init__(self, X, y, binarize_sparse, validation, train_size, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False):
+    def __init__(self, X, y, binarize_sparse, validation, train_size, timeout_per_evaluation, epsilon, seed=0, exception_on_failure=False, other_args = {}):
         super().__init__(X, y, binarize_sparse)
+        
+        self.other_args = other_args
+        
         if validation == "cv":
             if train_size == 0.8:
                 num_folds = 5
@@ -294,7 +297,7 @@ class VerticalEvaluator(Evaluator):
                 num_folds = 10
             else:
                 raise ValueError(f"Cannot run cross-validation for train_size {train_size}. Must be 0.8 or 0.9.")
-            self.validation_func = lambda pl, seed: self.cv(pl, seed, num_folds)
+            self.validation_func = lambda pl, seed: self.cv(pl, seed, num_folds, *self.other_args)
         elif "lccv" in validation:
             
             is_flex = "flex" in validation
@@ -383,7 +386,20 @@ class VerticalEvaluator(Evaluator):
         try:
             enforce_all_anchor_evaluations = self.r == 1
             pl = Pipeline(self.mandatory_pre_processing + pl.steps)
-            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.9, min_evals_for_stability=3, MAX_EVALUATIONS = 10, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=True)[0]
+            args = {
+                "r": self.r,
+                "timeout": self.timeout_per_evaluation,
+                "seed": seed,
+                "target_anchor": .9,
+                "min_evals_for_stability": 3,
+                "MAX_EVALUATIONS": 10,
+                "enforce_all_anchor_evaluations": enforce_all_anchor_evaluations,
+                "fix_train_test_folds": True
+            }
+            for key, val in self.other_args.items():
+                args[key] = val
+            
+            score = lccv.lccv(pl, self.X, self.y, **args)[0]
             self.r = min(self.r, score)
             return score
         except KeyboardInterrupt:
@@ -396,7 +412,19 @@ class VerticalEvaluator(Evaluator):
         try:
             enforce_all_anchor_evaluations = self.r == 1
             pl = Pipeline(self.mandatory_pre_processing + pl.steps)
-            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.8, min_evals_for_stability=3, MAX_EVALUATIONS = 5, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations,fix_train_test_folds=True)[0]
+            args = {
+                "r": self.r,
+                "timeout": self.timeout_per_evaluation,
+                "seed": seed,
+                "target_anchor": .8,
+                "min_evals_for_stability": 3,
+                "MAX_EVALUATIONS": 5,
+                "enforce_all_anchor_evaluations": enforce_all_anchor_evaluations,
+                "fix_train_test_folds": True
+            }
+            for key, val in self.other_args.items():
+                args[key] = val
+            score = lccv.lccv(pl, self.X, self.y, **args)[0]
             self.r = min(self.r, score)
             return score
         except KeyboardInterrupt:
@@ -409,7 +437,22 @@ class VerticalEvaluator(Evaluator):
         try:
             enforce_all_anchor_evaluations = self.r == 1
             pl = Pipeline(self.mandatory_pre_processing + pl.steps)
-            score = lccv.lccv(pl, self.X, self.y, r=self.r, timeout=self.timeout_per_evaluation, seed=seed, target_anchor=.9, enforce_all_anchor_evaluations = enforce_all_anchor_evaluations, use_train_curve=decide_block_train, fix_train_test_folds=False)[0]
+            
+            args = {
+                "r": self.r,
+                "timeout": self.timeout_per_evaluation,
+                "seed": seed,
+                "target_anchor": .9,
+                "min_evals_for_stability": 3,
+                "MAX_EVALUATIONS": 10,
+                "enforce_all_anchor_evaluations": enforce_all_anchor_evaluations,
+                "use_train_curve": decide_block_train,
+                "fix_train_test_folds": False
+            }
+            for key, val in self.other_args.items():
+                args[key] = val
+            
+            score = lccv.lccv(pl, self.X, self.y, **args)[0]
             self.r = min(self.r, score)
             return score
         except KeyboardInterrupt:
