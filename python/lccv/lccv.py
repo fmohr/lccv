@@ -44,7 +44,7 @@ def _partition_train_test_data(
 
 class EmpiricalLearningModel:
     
-    def __init__(self, learner, X, y, n_test, seed, fix_train_test_folds):
+    def __init__(self, learner, X, y, n_test, seed, fix_train_test_folds, evaluator, scoring):
         
         # set up logger
         self.logger = logging.getLogger('elm')
@@ -61,8 +61,10 @@ class EmpiricalLearningModel:
             self.X = X
             self.y = y
             self.n_test = n_test
-        self.df = pd.DataFrame([], columns=["trainsize", "seed", "error_rate_train", "error_rate_test", "runtime"])
+        self.df = pd.DataFrame([], columns=["trainsize", "seed", "score_train", "score_test", "runtime"])
         
+        self.evaluator = evaluator if evvaluator is not None else self.evaluate
+        self.scoring = sklearn.metrics.get_scorer(scoring) if type(scoring) == str else scoring
         
 
     def evaluate(self, learner_inst, size, timeout, verbose):
@@ -82,7 +84,7 @@ class EmpiricalLearningModel:
         X_train = X_train[indices]
         y_train = y_train[indices]
         
-        hash_before = hash(X_train.tostring())
+        hash_before = hash(X_train.tobytes())
         
         
         self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape}. Timeout is {timeout}")
@@ -93,35 +95,33 @@ class EmpiricalLearningModel:
             func_timeout.func_timeout(timeout, learner_inst.fit, (X_train, y_train))
         end = time.time()
         self.logger.debug(f"Training ready after {int((end - start) * 1000)}ms. Now obtaining predictions.")
-        y_hat = learner_inst.predict(X_test)
-        error_rate_test = 1 - sklearn.metrics.accuracy_score(y_test, y_hat)
-        y_hat = learner_inst.predict(X_train)
-        error_rate_train = 1 - sklearn.metrics.accuracy_score(y_train, y_hat)
+        score_test = self.scoring(learner_inst, X_test, y_test)
+        score_train = self.scoring(learner_inst, X_train, y_train)
         end = time.time()
-        self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Error rate of model on {y_hat.shape[0]} validation/test instances is {error_rate_test}.")
-        hash_after = hash(X_train.tostring())
+        self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Score of model on {y_test.shape[0]} validation/test instances is {score_test}.")
+        hash_after = hash(X_train.tobytes())
         if hash_before != hash_after:
             raise Exception("Evaluation of pipeline has changed the data. Please make sure to evaluate pipelines that do not change the data in place.")
-        return error_rate_train, error_rate_test
+        return score_train, score_test
     
     def compute_and_add_sample(self, size, seed=None, timeout=None, verbose=False):
         tic = time.time()
         # TODO: important to check whether this is always a different order
-        error_rate_train, error_rate_test = self.evaluate(
+        score_train, score_test = self.evaluate(
             sklearn.base.clone(self.learner), size,
             timeout / 1000 if timeout is not None else None, verbose)
         toc = time.time()
         runtime = int(np.round(1000 * (toc-tic)))
         self.logger.debug(f"Sample value computed within {runtime}ms")
-        self.df.loc[len(self.df)] = [size, seed, error_rate_train, error_rate_test, runtime]
+        self.df.loc[len(self.df)] = [size, seed, score_train, score_test, runtime]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
-        return error_rate_train, error_rate_test
+        return score_train, score_test
     
     def get_values_at_anchor(self, anchor, test_scores = True):
-        return self.df[self.df["trainsize"] == anchor]["error_rate_" + ("test" if test_scores else "train")].values
+        return self.df[self.df["trainsize"] == anchor]["score_" + ("test" if test_scores else "train")].values
     
     def get_best_worst_train_score(self):
-        return max([min(g) for i, g in self.df.groupby("trainsize")["error_rate_train"]])
+        return max([min(g) for i, g in self.df.groupby("trainsize")["score_train"]])
     
     def get_mean_performance_at_anchor(self, anchor, test_scores = True):
         return np.mean(self.get_values_at_anchor(anchor, test_scores = test_scores))
@@ -152,10 +152,10 @@ class EmpiricalLearningModel:
             return out
     
         dfProbesAtSize = self.df[self.df["trainsize"] == size]
-        mu = np.mean(dfProbesAtSize["error_rate_" + ("test" if validation else "train")])
-        sigma = np.std(dfProbesAtSize["error_rate_" + ("test" if validation else "train")])
+        mu = np.mean(dfProbesAtSize["score_" + ("test" if validation else "train")])
+        sigma = np.std(dfProbesAtSize["score_" + ("test" if validation else "train")])
         return {
-            "n": len(dfProbesAtSize["error_rate_" + ("test" if validation else "train")]),
+            "n": len(dfProbesAtSize["score_" + ("test" if validation else "train")]),
             "mean": np.round(mu, round_precision),
             "std": np.round(sigma, round_precision),
             "conf": np.round(scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize))) if sigma > 0 else (mu, mu), round_precision)
@@ -179,15 +179,17 @@ class EmpiricalLearningModel:
                     lower_last = est[s2]["conf"][0]
                     upper_last = est[s2]["conf"][1]
                 else:
-                    lower_last = upper_last = est[s2]["mean"]
-                ranges.append((min(0, (upper_last - lower_prev_last) / (s2 - s1)), min(0, (lower_last - upper_prev_last) / (s2 - s1))))
+                        lower_last = upper_last = est[s2]["mean"]
+                optimistic_slope = (upper_last - lower_prev_last) / (s2 - s1)
+                pessimistic_slope = (lower_last - upper_prev_last) / (s2 - s1)
+                ranges.append((optimistic_slope, pessimistic_slope))
         return ranges
     
     def get_slope_range_in_last_segment(self):
         return self.get_slope_ranges()[-1]
     
     def get_performance_interval_at_target(self, target):
-        pessimistic_slope, optimistic_slope = self.get_slope_range_in_last_segment()
+        optimistic_slope, pessimistic_slope = self.get_slope_range_in_last_segment()
         sizes = sorted(np.unique(self.df["trainsize"]))
         last_size = sizes[-1]
         normal_estimates = self.get_normal_estimates()[last_size]
@@ -206,11 +208,11 @@ class EmpiricalLearningModel:
             raise Exception("Confidence interval must not be nan!")
         if np.isnan(optimistic_slope):
             raise Exception("Slope must not be nan")
-        return pessimistic_slope * (target - last_size) + last_conf_upper, optimistic_slope * (target - last_size) + last_conf_lower
+        return pessimistic_slope * (target - last_size) + last_conf_lower, optimistic_slope * (target - last_size) + last_conf_upper
         
     def get_ipl(self):
         sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate_test"]) for s in sizes]
+        scores = [np.mean(self.df[self.df["trainsize"] == s]["score_test"]) for s in sizes]
         def ipl(beta):
             a, b, c = tuple(beta.astype(float))
             pl = lambda x: a + b * x **(-c)
@@ -224,7 +226,7 @@ class EmpiricalLearningModel:
     
     def get_mmf(self, validation_curve = True):
         sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores = [np.mean(self.df[self.df["trainsize"] == s]["error_rate_" + ("test" if validation_curve else "train")]) for s in sizes]
+        scores = [np.mean(self.df[self.df["trainsize"] == s]["score_" + ("test" if validation_curve else "train")]) for s in sizes]
         weights = [2**i for i in range(len(sizes))]
         def mmf(beta):
             a, b, c, d = tuple(beta.astype(float))
@@ -287,15 +289,15 @@ class EmpiricalLearningModel:
         
         # create lines that project based on convexity
         val_at_target_pessimistic, val_at_target_optimistic = self.get_performance_interval_at_target(max_anchor)
-        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"], val_at_target_pessimistic], color="C3", linestyle="--")
-        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"], val_at_target_optimistic], color="C2", linestyle="--")
+        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"] + scores_valid[-2]["std"], val_at_target_pessimistic], color="C3", linestyle="--")
+        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"] - scores_valid[-2]["std"], val_at_target_optimistic], color="C2", linestyle="--")
         
         if r is not None:
             ax.axhline(r, color="black", linestyle="--")
         plt.show()
     
 
-def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.005, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3, use_train_curve=True,fix_train_test_folds=False, visualize_lcs = False):
+def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.005, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3, use_train_curve=True,fix_train_test_folds=False, evaluator=None, scoring="accuracy", visualize_lcs = False, exceptions = "message"):
     """
     Evaluates a learner in an iterative fashion, using learning curves. The
     method builds upon the assumption that learning curves are convex. After
@@ -361,7 +363,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     max_exp = np.log(target_anchor) / np.log(base)
     schedule = [base**i for i in list(range(min_exp, int(np.ceil(max_exp))))] + [target_anchor]
     slopes = (len(schedule) - 1) * [np.nan]
-    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target_anchor, seed, fix_train_test_folds)
+    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target_anchor, seed, fix_train_test_folds, scoring = scoring)
     T = len(schedule) - 1
     t = 0 if r < 1 or enforce_all_anchor_evaluations else T
     repair_convexity = False
@@ -379,7 +381,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
     ## MAIN LOOP
     while t <= T and elm.get_conf_interval_size_at_target(target_anchor) > max_conf_interval_size_target and len(elm.get_values_at_anchor(target_anchor)) < MAX_EVALUATIONS:
         
-        remaining_time = deadline - time.time() if deadline is not None else np.inf
+        remaining_time = deadline - time.time() - 0.1 if deadline is not None else np.inf
         if remaining_time < 1:
             logger.info("Timeout observed, stopping outer loop of LCCV")
             break
@@ -393,7 +395,7 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
         ## INNER LOOP: acquire observations at anchor until stability is reached, or just a single one to repair convexity
         while repair_convexity or num_evaluations_at_t < min_evals_for_stability or (elm.get_conf_interval_size_at_target(s_t) > eps and num_evaluations_at_t < MAX_EVALUATIONS):
             
-            remaining_time = deadline - time.time() if deadline is not None else np.inf
+            remaining_time = deadline - time.time() - 0.1 if deadline is not None else np.inf
             if remaining_time < 1:
                 logger.info("Timeout observed, stopping inner loop of LCCV")
                 break
@@ -405,35 +407,35 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             try:
                 seed_used = 13 * (1 + seed) + num_evaluations_at_t
                 logger.debug(f"Adding point at size {s_t} with seed is {seed_used}. Remaining time: {remaining_time}s")
-                error_rate_train, error_rate_test = elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time()) * 1000 if deadline is not None else None, verbose=verbose)
+                score_train, score_test = elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time() - 0.1) * 1000 if deadline is not None else None, verbose=verbose)
                 num_evaluations_at_t += 1
-                logger.debug(f"Sample computed successfully. Observed performance was {np.round(error_rate_train, 4)} (train) and {np.round(error_rate_test, 4)} (test).")
+                logger.debug(f"Sample computed successfully. Observed performance was {np.round(score_train, 4)} (train) and {np.round(score_test, 4)} (test).")
             except func_timeout.FunctionTimedOut:
                 timeouted = True
                 logger.info("Observed timeout. Stopping LCCV.")
                 break
             except Exception as e:
                 logger.info(f"Observed an exception at anchor {s_t}.\nRaising it to the outside and ignoring this candidate.\nThis is not necessarily a good strategy; depending on the exception, one should try the candidate again on the same or bigger data size, because this can be related to a too small sample size.\nThe exception was: {e}.")
-                raise
+                if exceptions == "raise":
+                    raise
+                score_train, score_test = np.nan, np.nan
+                num_evaluations_at_t += 1
             
             # check wheter a repair is needed
-            if num_evaluations_at_t >= min_evals_for_stability and t < T:
-                if visualize_lcs and t > 2:
-                    elm.visualize(schedule[-1], r)
-                    
-                    slopes = elm.get_slope_ranges()
-                    if len(slopes) < 2:
-                        raise Exception(f"There should be two slope ranges for t > 2 (t is {t}), but we observed only 1.")
-                    if slopes[t - 2] < slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
-                        repair_convexity = True
-                        break
+            if num_evaluations_at_t >= min_evals_for_stability and t < T and t > 2:                    
+                slopes = elm.get_slope_ranges()
+                if len(slopes) < 2:
+                    raise Exception(f"There should be two slope ranges for t > 2 (t is {t}), but we observed only 1.")
+                if slopes[t - 2] > slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
+                    repair_convexity = True
+                    break
         
         # check training curve
         if use_train_curve != False:
             
             check_training_curve = (type(use_train_curve) == bool) or (callable(use_train_curve) and use_train_curve(learner_inst, s_t))
             
-            if check_training_curve and elm.get_best_worst_train_score() > r:
+            if check_training_curve and elm.get_best_worst_train_score() < r:
                 logger.info(f"Train curve has value {elm.get_best_worst_train_score()} that is already worse than r = {r}. Stopping.")
                 break
         
@@ -446,7 +448,12 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
         if repair_convexity:
             t -= 1
             logger.debug(f"Convexity needs to be repaired, stepping back. t is now {t}")
-        elif t >= 2 and elm.get_performance_interval_at_target(target_anchor)[1] >= r:
+        elif t >= 2 and elm.get_performance_interval_at_target(target_anchor)[1] < r:
+            
+            if visualize_lcs:
+                logger.debug(f"Visualizing curve")
+                elm.visualize(schedule[-1], r)
+            
             optimistic_estimate_for_target_performance = elm.get_performance_interval_at_target(target_anchor)[1]
             
             # prepare data for cut-off summary
@@ -470,12 +477,12 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             Optimistic offset at last evaluated anchor {last_size}: {last_conf[0]}
             Optimistic slope from last segment: {optimistic_slope}
             Remaining steps: {(target_anchor - last_size)}
-            Most optimistic value possible at target size {target_anchor}: {optimistic_slope * (target_anchor - last_size) + last_conf[0]}""")
+            Most optimistic value possible at target size {target_anchor}: {optimistic_estimate_for_target_performance}""")
             return np.nan, normal_estimates_last["mean"], estimates, elm
 
-        elif not enforce_all_anchor_evaluations and (elm.get_mean_performance_at_anchor(s_t) < r or (t >= 3 and elm.get_lc_estimate_at_target(target_anchor) <= r + MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION)):
+        elif not enforce_all_anchor_evaluations and (elm.get_mean_performance_at_anchor(s_t) > r or (t >= 3 and elm.get_lc_estimate_at_target(target_anchor) >= r - MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION)):
             t = T
-            if (elm.get_mean_performance_at_anchor(s_t) < r):
+            if (elm.get_mean_performance_at_anchor(s_t) > r):
                 logger.info(f"Current mean is {elm.get_mean_performance_at_anchor(s_t)}, which is already an improvement over r = {r}. Hence, stepping to full size.")
             else:
                 logger.info(f"Candidate appears to be competitive (predicted performance at {target_anchor} is {elm.get_lc_estimate_at_target(target_anchor)}. Jumping to last anchor in schedule: {t}")
@@ -484,24 +491,30 @@ def lccv(learner_inst, X, y, r=1.0, timeout=None, base=2, min_exp=6, MAX_ESTIMAT
             logger.info(f"Finished schedule on {s_t}, and t is now {t}. Performance: {elm.get_normal_estimates(s_t, 4)}.")
             if t < T:
                 estimates = elm.get_normal_estimates()
-                logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule]))
+                logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule if len(elm.get_runtimes_at_anchor(s_t)) > 0]))
                 if t > 2:
                     logger.debug(f"Estimate for target size {target_anchor}: {elm.get_performance_interval_at_target(target_anchor)[1]}")
     
     # output final reports
     toc = time.time()
     estimates = elm.get_normal_estimates()
-    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule]))
+    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule if len(elm.get_runtimes_at_anchor(s_t)) > 0]))
     
     # return result depending on observations and configuration
-    if len(estimates) == 0 or elm.get_best_worst_train_score() > r:
+    if len(estimates) == 0 or elm.get_best_worst_train_score() < r:
         logger.info(f"Observed no result or a train performance that is worse than r. In either case, returning nan.")
         return np.nan, np.nan, dict(), elm
     elif len(estimates) < 3:
         max_anchor = max([int(k) for k in estimates])
+        if visualize_lcs:
+            logger.debug(f"Visualizing curve")
+            elm.visualize(schedule[-1], r)
         return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm
     else:
         max_anchor = max([int(k) for k in estimates])
         target_performance = estimates[max_anchor]["mean"] if t == T or not return_estimate_on_incomplete_runs else elm.get_lc_estimate_at_target(target_anchor)
         logger.info(f"Target performance: {target_performance}")
+        if visualize_lcs:
+            logger.debug(f"Visualizing curve")
+            elm.visualize(schedule[-1], r)
         return target_performance, estimates[max_anchor]["mean"], estimates, elm
