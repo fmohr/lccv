@@ -8,6 +8,8 @@ import time
 import sklearn.metrics
 import func_timeout
 
+import inspect
+
 import matplotlib.pyplot as plt
 
 def format_learner(learner):
@@ -44,7 +46,7 @@ def _partition_train_test_data(
 
 class EmpiricalLearningModel:
     
-    def __init__(self, learner, X, y, n_test, seed, fix_train_test_folds, evaluator, scoring):
+    def __init__(self, learner, X, y, n_target, seed, fix_train_test_folds, evaluator, scoring):
         
         # set up logger
         self.logger = logging.getLogger('elm')
@@ -53,21 +55,35 @@ class EmpiricalLearningModel:
         self.active_seed = seed
         self.fix_train_test_folds = fix_train_test_folds
         
-        if fix_train_test_folds:
-            self.X_train, self.y_train, self.X_test, self.y_test = _partition_train_test_data(X, y, n_test, seed)
-            self.logger.info(f"Train labels: \n{self.y_train}")
-            self.logger.info(f"Test labels: \n{self.y_test}")
-        else:
-            self.X = X
-            self.y = y
-            self.n_test = n_test
+        self.scoring = scoring
+        
+        # set evaluator and scoring
+        self.evaluator = evaluator if evaluator is not None else self.evaluate
+        if not callable(self.evaluator):
+            raise Exception(f"Evaluator is of type {type(self.evaluator)}, which is not a callable.")
+        
+        # the data is only used if no evaluator is given
+        if evaluator is None:
+            
+            if X.shape[0] <= 0:
+                raise Exception(f"Recieved dataset with non-positive number of instances. Shape is {X.shape}")
+            
+            n_test = X.shape[0] - n_target # portion of data that exceeds the target value is used for testing
+            
+            if fix_train_test_folds:
+                self.X_train, self.y_train, self.X_test, self.y_test = _partition_train_test_data(X, y, n_test, seed)
+                self.logger.info(f"Train labels: \n{self.y_train}")
+                self.logger.info(f"Test labels: \n{self.y_test}")
+            else:
+                self.X = X
+                self.y = y
+                self.n_test = n_test
+                
+        # initialize data
         self.df = pd.DataFrame([], columns=["trainsize", "seed", "score_train", "score_test", "runtime"])
-        
-        self.evaluator = evaluator if evvaluator is not None else self.evaluate
-        self.scoring = sklearn.metrics.get_scorer(scoring) if type(scoring) == str else scoring
-        
+        self.rs = np.random.RandomState(seed)
 
-    def evaluate(self, learner_inst, size, timeout, verbose):
+    def evaluate(self, learner_inst, size, timeout):
 
         self.active_seed += 1
         self.logger.debug("Computing training data")
@@ -77,14 +93,35 @@ class EmpiricalLearningModel:
             self.logger.info("Re-using pre-defined train and test folds")
             X_train, y_train, X_test, y_test = self.X_train, self.y_train, self.X_test, self.y_test
         else:
-            self.logger.info("Dynamically creating a train and test fold")
             X_train, y_train, X_test, y_test = _partition_train_test_data(self.X, self.y, self.n_test, self.active_seed)
+            self.logger.info(f"Dynamically creating a train and test fold with seed {self.active_seed}.")
         
-        indices = np.random.choice(X_train.shape[0], size, replace=False)
+        indices = self.rs.choice(X_train.shape[0], size, replace=False)
         X_train = X_train[indices]
         y_train = y_train[indices]
+        self.logger.debug(f"Created train portion. Labels in train/test data: {len(np.unique(y_train))}/{len(np.unique(y_test))}")
         
         hash_before = hash(X_train.tobytes())
+        
+        # if a scoring function is given as a string, the existing labels are added through make_scorer.
+        # this is a work-around since sklearn does not allow to provide the labels when getting a scoring with get_scorer
+        # it is also necessary here and NOT in the constructor, because the labels must be the ones used in the training set.
+        if type(self.scoring) == str:
+            tmp_scorer = sklearn.metrics.get_scorer(self.scoring)
+            needs_labels = "labels" in inspect.signature(tmp_scorer._score_func).parameters
+            kws = {
+                "score_func": tmp_scorer._score_func,
+                "greater_is_better": tmp_scorer._sign == 1,
+                "needs_proba": type(tmp_scorer) == sklearn.metrics._scorer._ProbaScorer,
+                "needs_threshold": type(tmp_scorer) == sklearn.metrics._scorer._ThresholdScorer,
+            }
+            if needs_labels:
+                kws["labels"] = list(np.unique(y_train))
+            scoring = sklearn.metrics.make_scorer(**kws)
+        else:
+            scoring = self.scoring
+        if not callable(scoring):
+            raise Exception(f"Scoring is of type {type(self.scoring)}, which is not a callable. Make sure to pass a string or Callable.")
         
         
         self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape}. Timeout is {timeout}")
@@ -95,8 +132,8 @@ class EmpiricalLearningModel:
             func_timeout.func_timeout(timeout, learner_inst.fit, (X_train, y_train))
         end = time.time()
         self.logger.debug(f"Training ready after {int((end - start) * 1000)}ms. Now obtaining predictions.")
-        score_test = self.scoring(learner_inst, X_test, y_test)
-        score_train = self.scoring(learner_inst, X_train, y_train)
+        score_test = scoring(learner_inst, X_test, y_test)
+        score_train = scoring(learner_inst, X_train, y_train)
         end = time.time()
         self.logger.info(f"Evaluation ready after {int((end - start) * 1000)}ms. Score of model on {y_test.shape[0]} validation/test instances is {score_test}.")
         hash_after = hash(X_train.tobytes())
@@ -107,11 +144,22 @@ class EmpiricalLearningModel:
     def compute_and_add_sample(self, size, seed=None, timeout=None, verbose=False):
         tic = time.time()
         # TODO: important to check whether this is always a different order
-        score_train, score_test = self.evaluate(
+        evaluation_result = self.evaluator(
             sklearn.base.clone(self.learner), size,
-            timeout / 1000 if timeout is not None else None, verbose)
+            timeout / 1000 if timeout is not None else None)
         toc = time.time()
         runtime = int(np.round(1000 * (toc-tic)))
+        
+        # extract evaluation result (possibly overriding the runtime)
+        if type(evaluation_result) != tuple:
+            raise ValueError(f"Evaluator supposed to return a tuple but returned {type(evaluation_result)}")
+        if len(evaluation_result) == 2:
+            score_train, score_test = evaluation_result
+        elif len(evaluation_result) == 3:
+            score_train, score_test, runtime = evaluation_result
+        else:
+            raise ValueError(f"Evaluator returned a result of length {len(evaluation_result)} but must be 2 or 3.")
+            
         self.logger.debug(f"Sample value computed within {runtime}ms")
         self.df.loc[len(self.df)] = [size, seed, score_train, score_test, runtime]
         self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
@@ -167,29 +215,32 @@ class EmpiricalLearningModel:
         ranges = []
         for i, size in enumerate(sizes):
             if i > 0:
-                s1 = sizes[i - 1]
-                s2 = sizes[i]
+                anchor_size_prev_last = sizes[i - 1]
+                anchor_size_last = sizes[i]
                 
-                if est[s1]["n"] > 1:
-                    lower_prev_last = est[s1]["conf"][0]
-                    upper_prev_last = est[s1]["conf"][1]
+                # compute confidence bounds of prev last and last anchor
+                if est[anchor_size_prev_last]["n"] > 1:
+                    lower_prev_last = est[anchor_size_prev_last]["conf"][0]
+                    upper_prev_last = est[anchor_size_prev_last]["conf"][1]
                 else:
-                    lower_prev_last = upper_prev_last = est[s1]["mean"]
-                if est[s2]["n"] > 1:
-                    lower_last = est[s2]["conf"][0]
-                    upper_last = est[s2]["conf"][1]
+                    lower_prev_last = upper_prev_last = est[anchor_size_prev_last]["mean"]
+                if est[anchor_size_last]["n"] > 1:
+                    lower_last = est[anchor_size_last]["conf"][0]
+                    upper_last = est[anchor_size_last]["conf"][1]
                 else:
-                        lower_last = upper_last = est[s2]["mean"]
-                optimistic_slope = (upper_last - lower_prev_last) / (s2 - s1)
-                pessimistic_slope = (lower_last - upper_prev_last) / (s2 - s1)
-                ranges.append((optimistic_slope, pessimistic_slope))
+                    lower_last = upper_last = est[anchor_size_last]["mean"]
+                
+                # compute slope range
+                pessimistic_slope = max(0, (lower_last - upper_prev_last) / (anchor_size_last - anchor_size_prev_last))
+                optimistic_slope = max(0, (upper_last - lower_prev_last) / (anchor_size_last - anchor_size_prev_last))
+                ranges.append((pessimistic_slope, optimistic_slope))
         return ranges
     
     def get_slope_range_in_last_segment(self):
         return self.get_slope_ranges()[-1]
     
     def get_performance_interval_at_target(self, target):
-        optimistic_slope, pessimistic_slope = self.get_slope_range_in_last_segment()
+        pessimistic_slope, optimistic_slope = self.get_slope_range_in_last_segment()
         sizes = sorted(np.unique(self.df["trainsize"]))
         last_size = sizes[-1]
         normal_estimates = self.get_normal_estimates()[last_size]
@@ -330,6 +381,8 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     :param logger:
     :param min_evals_for_stability:
     :param use_train_curve: If True, then the evaluation stops as soon as the train curve drops under the threshold r
+    :param evaluator: Function to be used to query a noisy score at some anchor. To be maximized!
+    :param scoring: Scoring function to be computed for predictions obtained at an anchor. Is ignored if an evaluator is given.
     :return:
     """
     # create standard logger if none is given
@@ -351,25 +404,24 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     # intialize
     tic = time.time()
     deadline = tic + timeout if timeout is not None else None
-    
-    if X.shape[0] <= 0:
-        raise Exception(f"Recieved dataset with non-positive number of instances. Shape is {X.shape}")
 
     # configure the exponents and status variables
     if target_anchor < 1:
+        if X is None:
+            raise Exception("If no data is given, the `target_anchor` parameter must be specified as a positive integer.")
         target_anchor = int(np.floor(X.shape[0] * target_anchor))
     
     # initialize important variables and datastructures
     max_exp = np.log(target_anchor) / np.log(base)
     schedule = [base**i for i in list(range(min_exp, int(np.ceil(max_exp))))] + [target_anchor]
     slopes = (len(schedule) - 1) * [np.nan]
-    elm = EmpiricalLearningModel(learner_inst, X, y, X.shape[0] - target_anchor, seed, fix_train_test_folds, scoring = scoring)
+    elm = EmpiricalLearningModel(learner_inst, X, y, target_anchor, seed, fix_train_test_folds, evaluator = evaluator, scoring = scoring)
     T = len(schedule) - 1
-    t = 0 if r < 1 or enforce_all_anchor_evaluations else T
+    t = 0 if r < np.inf or enforce_all_anchor_evaluations else T
     repair_convexity = False
     
     # announce start event together with state variable values
-    logger.info(f"""Running LCCV on {X.shape}-shaped data. Overview:
+    logger.info(f"""Running LCCV {'on ' + str(X.shape) + '-shaped data' if X is not None else 'with custom evaluator.'}. Overview:
     learner: {format_learner(learner_inst)}
     r: {r}
     min_exp: {min_exp}
@@ -429,7 +481,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
                 if slopes[t - 2] > slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < MAX_EVALUATIONS:
                     repair_convexity = True
                     break
-        
+
         # check training curve
         if use_train_curve != False:
             
@@ -454,15 +506,17 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
                 logger.debug(f"Visualizing curve")
                 elm.visualize(schedule[-1], r)
             
-            optimistic_estimate_for_target_performance = elm.get_performance_interval_at_target(target_anchor)[1]
+            estimate_for_target_performance = elm.get_performance_interval_at_target(target_anchor)
+            optimistic_estimate_for_target_performance = estimate_for_target_performance[1]
             
             # prepare data for cut-off summary
             pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
             estimates = elm.get_normal_estimates()
             sizes = sorted(np.unique(elm.df["trainsize"]))
             i = -1
-            while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
-                i -= 1
+            if min_evals_for_stability > 1:
+                while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
+                    i -= 1
             last_size = s_t
             normal_estimates_last = estimates[last_size]
             last_conf = normal_estimates_last["conf"]
@@ -474,10 +528,10 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
             {elm.df}
             Normal Estimates: """ + ''.join(["\n\t\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]) + "\n\tSlope Ranges:" + ''.join(["\n\t\t" + str(schedule[i]) + " - " + str(schedule[i + 1]) + ": " +  str(e) for i, e in enumerate(elm.get_slope_ranges())]) + f"""
             Last size: {last_size}
-            Optimistic offset at last evaluated anchor {last_size}: {last_conf[0]}
+            Optimistic offset at last evaluated anchor {last_size}: {last_conf[1]}
             Optimistic slope from last segment: {optimistic_slope}
             Remaining steps: {(target_anchor - last_size)}
-            Most optimistic value possible at target size {target_anchor}: {optimistic_estimate_for_target_performance}""")
+            Estimated interval at target size {target_anchor} (pessimistic, optimistic): {estimate_for_target_performance}""")
             return np.nan, normal_estimates_last["mean"], estimates, elm
 
         elif not enforce_all_anchor_evaluations and (elm.get_mean_performance_at_anchor(s_t) > r or (t >= 3 and elm.get_lc_estimate_at_target(target_anchor) >= r - MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION)):
@@ -503,7 +557,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     # return result depending on observations and configuration
     if len(estimates) == 0 or elm.get_best_worst_train_score() < r:
         logger.info(f"Observed no result or a train performance that is worse than r. In either case, returning nan.")
-        return np.nan, np.nan, dict(), elm
+        return np.nan, np.nan, dict() if len(estimates) == 0 else estimates, elm
     elif len(estimates) < 3:
         max_anchor = max([int(k) for k in estimates])
         if visualize_lcs:

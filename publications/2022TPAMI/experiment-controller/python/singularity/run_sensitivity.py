@@ -91,10 +91,10 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
                        (memory_limit * 1024 * 1024, memory_limit * 1024 * 1024))
 
     # load data
-    exp_logger.info("Reading dataset")
+    binarize_sparse = openmlid in [1111, 41147, 41150, 42732, 42733]
+    exp_logger.info(f"Reading dataset. Will be binarized sparsely: {binarize_sparse}")
     X, y = get_dataset(openmlid)
-    exp_logger.info(
-        f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
+    exp_logger.info(f"ready. Dataset shape is {X.shape}, label column shape is {y.shape}. Now running the algorithm")
     if X.shape[0] <= 0:
         raise Exception("Dataset size invalid!")
     if X.shape[0] != len(y):
@@ -107,35 +107,46 @@ def run_experiment(openmlid: int, num_pipelines: int, seed: int,
                      range(num_pipelines)]
     exp_logger.info(f"Evaluating portfolio of {len(test_learners)} learners.")
 
-    # run lccv
+    # run lccv according to the settings of the sensitivity study
     epsilon = 0.0
-    validators = [(lccv90flex, lambda r: r[0], config_map)]
-    key = "lccv90flex"
-
-    result = \
-    evaluate_validators(validators, test_learners, X, y, timeout, seed=seed,
-                        repeats=100, epsilon=epsilon)[key]
-    model = result[0]
-    runtime = result[1]
+    algorithm = "lccv-flex"
+    train_size = 0.9
+    final_repeats = 100
+    
+    selector = VerticalEvaluator(X, y, binarize_sparse, algorithm, train_size, timeout, epsilon = 0.01, seed=seed, other_args = config_map)
+    
+    # run selector
+    time_start = time.time()
+    model = selector.select_model(test_learners, errors="ignore")
+    runtime = time.time() - time_start
+    
+    print("\n-------------------\n\n")
+    
+    
     if model is not None:
-        error_rate = np.round(result[2][0], 4)
+        
+        exp_logger.info(f"Model selection phase over after {int(runtime)}s. Now determining final performance as average of {final_repeats} MCCV runs.")
+        
+        # compute validation performance of selection
+        error_rates = selector.mccv(model, target_size=train_size, timeout=None, seed=seed, repeats = final_repeats)
+        error_rates = [np.round(r, 4) for r in error_rates if not np.isnan(r)]
+        error_rate = np.mean(error_rates)
         model_name = str(model).replace("\n", " ")
         exp_logger.info(f"""Run completed. Here are the details:
             Model: {model}
             Error Rate: {error_rate}
             Runtime: {runtime}
-            Results in final evaluation: {np.round(result[2][1], 4)}""")
+            {len(error_rates)}/{final_repeats} valid results in final evaluation: {np.array(error_rates)}""")
     else:
         exp_logger.info("No model was chosen. Assigning maximum error rate")
         error_rate = 1
         model_name = "None"
-
+        
     # write result
-    output = (model_name, error_rate, runtime, result[3], result[4])
-    with open(folder + "/results.txt", "w") as outfile:
+    output = (model_name, np.nanmean(error_rate), error_rates, runtime)
+    with open(folder + "/results.txt", "w") as outfile: 
         json.dump(output, outfile)
-    exp_logger.info(
-        f"Experiment ready. Results written to {folder}/results.txt")
+    exp_logger.info(f"Experiment ready. Results written to {folder}/results.txt")
 
 
 def pipeline_args(index: int):
@@ -149,7 +160,7 @@ def pipeline_args(index: int):
         value = values[index-3]
     elif index < 13:  # [11, 12]
         values = [False, True]
-        hyperparameter = 'return_estimate_on_incomplete_runs'
+        hyperparameter = 'use_train_curve'
         value = values[index-11]
     elif index < 17:  # 13, 14, 15, 16
         values = [0.10, 0.07, 0.04, 0.01]
@@ -172,6 +183,7 @@ def run_experiment_index_based(args):
     seed = args.experiment_idx % args.num_seeds
     hyperparameter, value = pipeline_args(int(np.floor(args.experiment_idx / args.num_seeds)))
     config_map = {hyperparameter: value, 'verbose': True}
+    print(f"Config map: {config_map}")
     folder = os.path.expanduser('~/experiments/lccv_sensitivity/%d/%s/%s/%d' % (args.dataset_id, hyperparameter, str(value), seed))
     os.makedirs(folder, exist_ok=True)
     run_experiment(args.dataset_id, args.num_pipelines, seed, args.timeout, folder, args.prob_dp, args.prob_fp, config_map)
@@ -179,5 +191,6 @@ def run_experiment_index_based(args):
 
 if __name__ == '__main__':
     args = parse_args()
+    print(f"Args: {args}")
     run_experiment_index_based(args)
 

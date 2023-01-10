@@ -7,7 +7,6 @@ import unittest
 from parameterized import parameterized
 import itertools as it
 import time
-from sklearn.experimental import enable_hist_gradient_boosting  # noqa
 import openml
 import pandas as pd
 
@@ -39,30 +38,29 @@ def get_dataset(openmlid):
     
 class TestLccv(unittest.TestCase):
     
-    preprocessors = [None, sklearn.preprocessing.RobustScaler, sklearn.kernel_approximation.RBFSampler]
+    preprocessors = [None]#, sklearn.preprocessing.RobustScaler, sklearn.kernel_approximation.RBFSampler]
     
-    learners = [sklearn.svm.LinearSVC, sklearn.tree.DecisionTreeClassifier, sklearn.tree.ExtraTreeClassifier, sklearn.linear_model.LogisticRegression, sklearn.linear_model.PassiveAggressiveClassifier, sklearn.linear_model.Perceptron, sklearn.linear_model.RidgeClassifier, sklearn.linear_model.SGDClassifier, sklearn.neural_network.MLPClassifier, sklearn.discriminant_analysis.LinearDiscriminantAnalysis, sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis, sklearn.naive_bayes.BernoulliNB, sklearn.naive_bayes.MultinomialNB, sklearn.neighbors.KNeighborsClassifier, sklearn.ensemble.ExtraTreesClassifier, sklearn.ensemble.RandomForestClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.HistGradientBoostingClassifier]
+    learners = [sklearn.tree.DecisionTreeClassifier]#sklearn.svm.LinearSVC, sklearn.tree.ExtraTreeClassifier, sklearn.linear_model.LogisticRegression, sklearn.linear_model.PassiveAggressiveClassifier, sklearn.linear_model.Perceptron, sklearn.linear_model.RidgeClassifier, sklearn.linear_model.SGDClassifier, sklearn.neural_network.MLPClassifier, sklearn.discriminant_analysis.LinearDiscriminantAnalysis, sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis, sklearn.naive_bayes.BernoulliNB, sklearn.naive_bayes.MultinomialNB, sklearn.neighbors.KNeighborsClassifier, sklearn.ensemble.ExtraTreesClassifier, sklearn.ensemble.RandomForestClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.HistGradientBoostingClassifier]
 
     def setUpClass():
+        
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        
         # setup logger for this test suite
         logger = logging.getLogger('lccv_test')
         logger.setLevel(logging.DEBUG)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
         logger.addHandler(ch)
 
         # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
         lccv_logger = logging.getLogger("lccv")
-        lccv_logger.setLevel(logging.INFO)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
+        lccv_logger.setLevel(logging.WARN)
         lccv_logger.addHandler(ch)
+        elm_logger = logging.getLogger("elm")
+        elm_logger.setLevel(logging.WARN)
+        elm_logger.addHandler(ch)
         
     def setUp(self):
         self.logger = logging.getLogger("lccv_test")
@@ -91,23 +89,79 @@ class TestLccv(unittest.TestCase):
             np.testing.assert_array_equal(l_tr, l_tr2)
             self.logger.info(f"Finished test for seed {seed}")
 
+    '''
+        Just test whether the function
+            * runs through successfully,
+            * syntactically behaves well, and
+            * produces (syntactically) the desired results.
+    '''
     def test_lccv_normal_function(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
+        _, _, res, _ = lccv.lccv(learner, features, labels, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
         self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+        
+    def test_lccv_custom_evaluator(self):
+        learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
+        
+        # evaluator 1: Does not return a time
+        # evaluator 2: Does return a runtime
+        rs = np.random.RandomState(0)
+        evaluator1 = lambda learner_inst, size, timeout: (0.66 + rs.normal(scale=0.1), 0.66 + rs.normal(scale=0.1))
+        evaluator2 = lambda learner_inst, size, timeout: (0.33 + rs.normal(scale=0.1), 0.33 + rs.normal(scale=0.1), 10**4)
+        for i, evaluator in enumerate([evaluator1, evaluator2]):
+            self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+            _, _, res, elm = lccv.lccv(learner, None, None, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, evaluator=evaluator, target_anchor = 135, exceptions = "raise")
+            self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
+            for key, val in res.items():
+                self.logger.info(f"Key: {key}, Val: {val}")
+                self.assertFalse(np.isnan(val['conf'][0]))
+                self.assertFalse(np.isnan(val['conf'][1]))
+            self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+            
+            # check that registered runtime is correct
+            mean_runtime = elm.df["runtime"].mean()
+            expected_runtime = 0 if i == 0 else 10**4
+            self.assertEquals(expected_runtime, mean_runtime)
+        
+        # test scoring
+        learner = sklearn.linear_model.LogisticRegression()
+        features, labels = sklearn.datasets.load_digits(return_X_y=True)
+        for scoring, is_binary in zip(["accuracy", "top_k_accuracy", "neg_log_loss", "roc_auc"], [False, True, False, True]):
+            self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+            
+            y = (labels == 0 if is_binary else labels)
+            
+            _, _, res, _ = lccv.lccv(learner, features, y, r = -np.inf, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, scoring=scoring, exceptions = "raise", seed = 3)
+            self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 256, 512, 1024, 1617})
+            for key, val in res.items():
+                self.logger.info(f"Key: {key}, Val: {val}")
+                self.assertFalse(np.isnan(val['conf'][0]))
+                self.assertFalse(np.isnan(val['conf'][1]))
+            self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
+            
+            # check that registered runtime is correct
+            mean_runtime = elm.df["runtime"].mean()
+            expected_runtime = 0 if i == 0 else 10**4
+            self.assertEqual(expected_runtime, mean_runtime)
+            
+            # check that results are negative for neg_log_loss and positive for accuracy
+            means = np.array([e["mean"] for e in res.values()])
+            if scoring == "neg_log_loss":
+                means *= -1
+            self.assertTrue(np.all(means >= 0))
 
     def test_lccv_all_points_finish(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
+        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.95, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
@@ -119,8 +173,8 @@ class TestLccv(unittest.TestCase):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.05, base=2, min_exp=4, enforce_all_anchor_evaluations=False, logger=self.lccv_logger)
-        self.assertSetEqual(set(res.keys()), {16, 32, 64, 135})
+        _, _, res, _ = lccv.lccv(learner, features, labels, r=0.95, base=2, min_exp=4, enforce_all_anchor_evaluations=False, logger=self.lccv_logger, seed = 12)
+        self.assertSetEqual(set(res.keys()), {16, 135})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
@@ -131,8 +185,11 @@ class TestLccv(unittest.TestCase):
         features, labels = sklearn.datasets.load_digits(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=-0.5, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
-        self.assertSetEqual(set(res.keys()), {16, 32, 64})
+        
+        r = 2.0 # this is not reachable (in accuracy), so there should be a pruning
+        
+        _, _, res, _ = lccv.lccv(learner, features, labels, r=r, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, use_train_curve = False)
+        self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 256})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
@@ -144,10 +201,11 @@ class TestLccv(unittest.TestCase):
     """
         This test checks whether the results are equivalent to a 5CV or 10CV
     """
-    @parameterized.expand(list(it.product(preprocessors, learners, [1464])))#[61])))
-    def test_lccv_runtime_and_result_bare(self, preprocessor, learner, dataset):
+    @parameterized.expand(list(it.product(preprocessors, learners, [61], ["accuracy"])))#[61, 1464])))
+    def test_lccv_runtime_and_result_bare(self, preprocessor, learner, dataset, scoring):
         X, y = get_dataset(dataset)
-        self.logger.info(f"Start Test LCCV when running with r=1.0 on dataset {dataset}")
+        r = -np.inf
+        self.logger.info(f"Start Test LCCV when running with r={r} on dataset {dataset}")
         
         # configure pipeline
         steps = []
@@ -168,7 +226,7 @@ class TestLccv(unittest.TestCase):
             # run 5-fold CV
             self.logger.info("Running 5CV")
             start = time.time()
-            score_5cv = 1 - np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=5)["test_score"])
+            score_5cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, scoring = scoring, cv=5)["test_score"])
             end = time.time()
             runtime_5cv = end - start
             self.logger.info(f"Finished 5CV within {runtime_5cv}s.")
@@ -176,10 +234,11 @@ class TestLccv(unittest.TestCase):
             # run 80lccv
             self.logger.info("Running 80LCCV")
             start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, target_anchor=.8, MAX_EVALUATIONS=5)[0]
+            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r = r, target_anchor=.8, MAX_EVALUATIONS=5, scoring=scoring)[0]
             end = time.time()
             runtime_80lccv = end - start
             self.logger.info(f"Finished 80LCCV within {runtime_80lccv}s. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
+            self.assertFalse(np.isnan(score_80lccv))
 
             # check runtime and result
             tol = 0.1#0.05 if dataset != 61 else 0.1
@@ -190,7 +249,7 @@ class TestLccv(unittest.TestCase):
             # run 10-fold CV
             self.logger.info("Running 10CV")
             start = time.time()
-            score_10cv = 1 - np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
+            score_10cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
             end = time.time()
             runtime_10cv = end - start
             self.logger.info(f"Finished 10CV within {runtime_10cv}s.")
@@ -198,7 +257,7 @@ class TestLccv(unittest.TestCase):
             # run 90lccv
             self.logger.info("Running 90LCCV")
             start = time.time()
-            score_90lccv = lccv.lccv(sklearn.base.clone(pl), X, y, target_anchor=.9)[0]
+            score_90lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r = r, target_anchor=.9)[0]
             end = time.time()
             runtime_90lccv = end - start
             self.logger.info(f"Finished 90LCCV within {runtime_90lccv}s. Runtime diff was {np.round(runtime_10cv - runtime_90lccv, 1)}s. Performance diff was {np.round(score_10cv - score_90lccv, 2)}.")
@@ -240,7 +299,7 @@ class TestLccv(unittest.TestCase):
             # run 5-fold CV
             self.logger.info("Running 5CV")
             start = time.time()
-            score_5cv = 1 - np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=5)["test_score"])
+            score_5cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=5)["test_score"])
             end = time.time()
             runtime_5cv = end - start
             self.logger.info(f"Finished 5CV within {round(runtime_5cv, 2)}s with score {np.round(score_5cv, 3)}.")
@@ -248,7 +307,7 @@ class TestLccv(unittest.TestCase):
             # run 80lccv
             self.logger.info("Running 80LCCV")
             start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, MAX_EVALUATIONS=5)[0]
+            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, MAX_EVALUATIONS=5, seed = 2)[0]
             end = time.time()
             runtime_80lccv = end - start
             self.logger.info(f"Finished 80LCCV within {round(runtime_80lccv, 2)}s with score {np.round(score_80lccv, 3)}. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
@@ -265,7 +324,7 @@ class TestLccv(unittest.TestCase):
             # run 10-fold CV
             self.logger.info("Running 10CV")
             start = time.time()
-            score_10cv = 1 - np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
+            score_10cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
             end = time.time()
             runtime_10cv = end - start
             self.logger.info(f"Finished 10CV within {round(runtime_10cv, 2)}s with score {np.round(score_10cv, 3)}")

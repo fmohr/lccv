@@ -45,7 +45,7 @@ def run(args):
                                 'hyperparameter_value': str(hyperparameter_value),
                                 'seed': int(seed),
                                 'error_rate': float(result[1]),
-                                'runtime': float(result[2])
+                                'runtime': float(result[3])
                             }
                             records.append(record)
                         # print(file)
