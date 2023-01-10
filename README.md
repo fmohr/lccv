@@ -20,7 +20,7 @@ You can install LCCV via
 pip install lccv
 ```
 
-[example-usage.ipynb](https://github.com/fmohr/lccv/blob/master/example-usage.ipynb) shows a Python notebook with usage examples. It also shows how LCCV can be combined with existing AutoML tools like Naive AutoML.
+[example-usage.ipynb](https://github.com/fmohr/lccv/blob/master/example-usage.ipynb) shows a Python notebook with usage examples. It also shows how LCCV can be combined with existing AutoML tools like [Naive AutoML](https://github.com/fmohr/naiveautoml).
 
 ## Citing LCCV
 
