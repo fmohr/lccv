@@ -117,7 +117,7 @@ class TestLccv(unittest.TestCase):
         evaluator2 = lambda learner_inst, size, timeout: (0.33 + rs.normal(scale=0.1), 0.33 + rs.normal(scale=0.1), 10**4)
         for i, evaluator in enumerate([evaluator1, evaluator2]):
             self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-            _, _, res, elm = lccv.lccv(learner, None, None, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, evaluator=evaluator, target_anchor = 135, exceptions = "raise")
+            _, _, res, elm = lccv.lccv(None, None, None, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, evaluator=evaluator, target_anchor = 135, exceptions = "raise")
             self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
             for key, val in res.items():
                 self.logger.info(f"Key: {key}, Val: {val}")

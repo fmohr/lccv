@@ -123,7 +123,7 @@ class EmpiricalLearningModel:
         if not callable(scoring):
             raise Exception(f"Scoring is of type {type(self.scoring)}, which is not a callable. Make sure to pass a string or Callable.")
         
-        
+        learner_inst = sklearn.base.clone(learner_inst)
         self.logger.info(f"Training {format_learner(learner_inst)} on data of shape {X_train.shape}. Timeout is {timeout}")
         start = time.time()
         if timeout is None:
@@ -145,7 +145,7 @@ class EmpiricalLearningModel:
         tic = time.time()
         # TODO: important to check whether this is always a different order
         evaluation_result = self.evaluator(
-            sklearn.base.clone(self.learner), size,
+            self.learner, size,
             timeout / 1000 if timeout is not None else None)
         toc = time.time()
         runtime = int(np.round(1000 * (toc-tic)))
