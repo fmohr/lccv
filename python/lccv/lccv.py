@@ -148,7 +148,7 @@ class EmpiricalLearningModel:
             self.learner, size,
             timeout / 1000 if timeout is not None else None)
         toc = time.time()
-        runtime = int(np.round(1000 * (toc-tic)))
+        runtime = toc-tic
         
         # extract evaluation result (possibly overriding the runtime)
         if type(evaluation_result) != tuple:
@@ -160,9 +160,9 @@ class EmpiricalLearningModel:
         else:
             raise ValueError(f"Evaluator returned a result of length {len(evaluation_result)} but must be 2 or 3.")
             
-        self.logger.debug(f"Sample value computed within {runtime}ms")
+        self.logger.debug(f"Sample value computed within {runtime}s")
         self.df.loc[len(self.df)] = [size, seed, score_train, score_test, runtime]
-        self.df = self.df.astype({"trainsize": int, "seed": int, "runtime": int})
+        self.df = self.df.astype({"trainsize": int, "seed": int})
         return score_train, score_test
     
     def get_values_at_anchor(self, anchor, test_scores = True):
@@ -552,7 +552,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     # output final reports
     toc = time.time()
     estimates = elm.get_normal_estimates()
-    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule if len(elm.get_runtimes_at_anchor(s_t)) > 0]))
+    logger.info(f"Learning Curve Construction Completed. Summary:\n\tRuntime: {int(1000*(toc-tic))}ms.\n\tLC: " + ''.join(["\n\t\t" + str(s_t) + ":\t" + (", ".join([str(k) + ": " + str(np.round(v, 4)) for k, v in estimates[s_t].items()]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t)), 1)) for s_t in schedule if len(elm.get_runtimes_at_anchor(s_t)) > 0]))
     
     # return result depending on observations and configuration
     if len(estimates) == 0 or elm.get_best_worst_train_score() < r:

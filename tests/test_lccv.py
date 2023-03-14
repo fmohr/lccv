@@ -127,8 +127,10 @@ class TestLccv(unittest.TestCase):
             
             # check that registered runtime is correct
             mean_runtime = elm.df["runtime"].mean()
-            expected_runtime = 0 if i == 0 else 10**4
-            self.assertEquals(expected_runtime, mean_runtime)
+            if i == 0:
+                self.assertTrue(mean_runtime < 10**-3)
+            else:
+                self.assertEqual(10**4, mean_runtime)
         
         # test scoring
         learner = sklearn.linear_model.LogisticRegression()
