@@ -158,6 +158,20 @@ class TestLccv(unittest.TestCase):
             if scoring == "neg_log_loss":
                 means *= -1
             self.assertTrue(np.all(means >= 0))
+            
+    def test_custom_schedule(self):
+        features, labels = sklearn.datasets.load_iris(return_X_y=True)
+        learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
+        self.logger.info(f"Starting test with custom schedule of LCCV on {learner.__class__.__name__}")
+        _, _, _, elm = lccv.lccv(learner, features, labels, r=0.95, schedule=[10, 20], enforce_all_anchor_evaluations=False, logger=self.lccv_logger, seed = 12)
+        train_sizes = elm.df["anchor"].values
+        self.assertEqual(10, train_sizes[0])
+        self.assertEqual(2, len(np.unique(train_sizes)))
+        self.assertEqual(20, np.max(train_sizes))
+        with self.assertRaises(ValueError):
+            lccv.lccv(learner, features, labels, r=0.95, schedule=[20, 10], enforce_all_anchor_evaluations=False, logger=self.lccv_logger, seed = 12)
+        self.logger.info(f"Finished test of LCCV with custom schedule on {learner.__class__.__name__}")
+        
 
     def test_lccv_all_points_finish(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)

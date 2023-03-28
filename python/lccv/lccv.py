@@ -80,10 +80,10 @@ class EmpiricalLearningModel:
                 self.n_test = n_test
                 
         # initialize data
-        self.df = pd.DataFrame([], columns=["trainsize", "seed", "score_train", "score_test", "runtime"])
+        self.df = pd.DataFrame([], columns=["anchor", "seed", "score_train", "score_test", "runtime"])
         self.rs = np.random.RandomState(seed)
 
-    def evaluate(self, learner_inst, size, timeout):
+    def evaluate(self, learner_inst, anchor, timeout):
 
         self.active_seed += 1
         self.logger.debug("Computing training data")
@@ -96,7 +96,7 @@ class EmpiricalLearningModel:
             X_train, y_train, X_test, y_test = _partition_train_test_data(self.X, self.y, self.n_test, self.active_seed)
             self.logger.info(f"Dynamically creating a train and test fold with seed {self.active_seed}.")
         
-        indices = self.rs.choice(X_train.shape[0], size, replace=False)
+        indices = self.rs.choice(X_train.shape[0], anchor, replace=False)
         X_train = X_train[indices]
         y_train = y_train[indices]
         self.logger.debug(f"Created train portion. Labels in train/test data: {len(np.unique(y_train))}/{len(np.unique(y_test))}")
@@ -141,11 +141,11 @@ class EmpiricalLearningModel:
             raise Exception("Evaluation of pipeline has changed the data. Please make sure to evaluate pipelines that do not change the data in place.")
         return score_train, score_test
     
-    def compute_and_add_sample(self, size, seed=None, timeout=None, verbose=False):
+    def compute_and_add_sample(self, anchor, seed=None, timeout=None, verbose=False):
         tic = time.time()
         # TODO: important to check whether this is always a different order
         evaluation_result = self.evaluator(
-            self.learner, size,
+            self.learner, anchor,
             timeout / 1000 if timeout is not None else None)
         toc = time.time()
         runtime = toc-tic
@@ -161,78 +161,78 @@ class EmpiricalLearningModel:
             raise ValueError(f"Evaluator returned a result of length {len(evaluation_result)} but must be 2 or 3.")
             
         self.logger.debug(f"Sample value computed within {runtime}s")
-        self.df.loc[len(self.df)] = [size, seed, score_train, score_test, runtime]
-        self.df = self.df.astype({"trainsize": int, "seed": int})
+        self.df.loc[len(self.df)] = [anchor, seed, score_train, score_test, runtime]
+        self.df = self.df.astype({"anchor": int, "seed": int})
         return score_train, score_test
     
     def get_values_at_anchor(self, anchor, test_scores = True):
-        return self.df[self.df["trainsize"] == anchor]["score_" + ("test" if test_scores else "train")].values
+        return self.df[self.df["anchor"] == anchor]["score_" + ("test" if test_scores else "train")].values
     
     def get_best_worst_train_score(self):
-        return max([min(g) for i, g in self.df.groupby("trainsize")["score_train"]])
+        return max([min(g) for i, g in self.df.groupby("anchor")["score_train"]])
     
     def get_mean_performance_at_anchor(self, anchor, test_scores = True):
         return np.mean(self.get_values_at_anchor(anchor, test_scores = test_scores))
     
     def get_mean_curve(self, test_scores = True):
-        anchors = sorted(pd.unique(self.df["trainsize"]))
+        anchors = sorted(pd.unique(self.df["anchor"]))
         return anchors, [self.get_mean_performance_at_anchor(a, test_scores = test_scores) for a in anchors]
     
     def get_runtimes_at_anchor(self, anchor):
-        return self.df[self.df["trainsize"] == anchor]["runtime"].values
+        return self.df[self.df["anchor"] == anchor]["runtime"].values
     
     def get_conf_interval_size_at_target(self, target):
-        if len (self.df[self.df["trainsize"] == target]) == 0:
+        if len (self.df[self.df["anchor"] == target]) == 0:
             return 1
-        ci = self.get_normal_estimates(size = target)["conf"]
+        ci = self.get_normal_estimates(anchor = target)["conf"]
         return ci[1] - ci[0]
     
     def get_lc_estimate_at_target(self, target):
         return self.get_mmf()[1](target)
     
-    def get_normal_estimates(self, size = None, round_precision=100, validation = True):
+    def get_normal_estimates(self, anchor = None, round_precision=100, validation = True):
         
-        if size is None:
-            sizes = sorted(np.unique(self.df["trainsize"]))
+        if anchor is None:
+            anchors = sorted(np.unique(self.df["anchor"]))
             out = {}
-            for size in sizes:
-                out[int(size)] = self.get_normal_estimates(size)
+            for anchor in anchors:
+                out[int(anchor)] = self.get_normal_estimates(anchor)
             return out
     
-        dfProbesAtSize = self.df[self.df["trainsize"] == size]
-        mu = np.mean(dfProbesAtSize["score_" + ("test" if validation else "train")])
-        sigma = np.std(dfProbesAtSize["score_" + ("test" if validation else "train")])
+        dfProbesAtAnchor = self.df[self.df["anchor"] == anchor]
+        mu = np.mean(dfProbesAtAnchor["score_" + ("test" if validation else "train")])
+        sigma = np.std(dfProbesAtAnchor["score_" + ("test" if validation else "train")])
         return {
-            "n": len(dfProbesAtSize["score_" + ("test" if validation else "train")]),
+            "n": len(dfProbesAtAnchor["score_" + ("test" if validation else "train")]),
             "mean": np.round(mu, round_precision),
             "std": np.round(sigma, round_precision),
-            "conf": np.round(scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtSize))) if sigma > 0 else (mu, mu), round_precision)
+            "conf": np.round(scipy.stats.norm.interval(0.95, loc=mu, scale=sigma/np.sqrt(len(dfProbesAtAnchor))) if sigma > 0 else (mu, mu), round_precision)
         }
     
     def get_slope_ranges(self):
         est = self.get_normal_estimates()
-        sizes = [s for s in est]
+        anchors = [s for s in est]
         ranges = []
-        for i, size in enumerate(sizes):
+        for i, anchor in enumerate(anchors):
             if i > 0:
-                anchor_size_prev_last = sizes[i - 1]
-                anchor_size_last = sizes[i]
+                anchor_prev_last = anchors[i - 1]
+                anchor_last = anchors[i]
                 
                 # compute confidence bounds of prev last and last anchor
-                if est[anchor_size_prev_last]["n"] > 1:
-                    lower_prev_last = est[anchor_size_prev_last]["conf"][0]
-                    upper_prev_last = est[anchor_size_prev_last]["conf"][1]
+                if est[anchor_prev_last]["n"] > 1:
+                    lower_prev_last = est[anchor_prev_last]["conf"][0]
+                    upper_prev_last = est[anchor_prev_last]["conf"][1]
                 else:
-                    lower_prev_last = upper_prev_last = est[anchor_size_prev_last]["mean"]
-                if est[anchor_size_last]["n"] > 1:
-                    lower_last = est[anchor_size_last]["conf"][0]
-                    upper_last = est[anchor_size_last]["conf"][1]
+                    lower_prev_last = upper_prev_last = est[anchor_prev_last]["mean"]
+                if est[anchor_last]["n"] > 1:
+                    lower_last = est[anchor_last]["conf"][0]
+                    upper_last = est[anchor_last]["conf"][1]
                 else:
-                    lower_last = upper_last = est[anchor_size_last]["mean"]
+                    lower_last = upper_last = est[anchor_last]["mean"]
                 
                 # compute slope range
-                pessimistic_slope = max(0, (lower_last - upper_prev_last) / (anchor_size_last - anchor_size_prev_last))
-                optimistic_slope = max(0, (upper_last - lower_prev_last) / (anchor_size_last - anchor_size_prev_last))
+                pessimistic_slope = max(0, (lower_last - upper_prev_last) / (anchor_last - anchor_prev_last))
+                optimistic_slope = max(0, (upper_last - lower_prev_last) / (anchor_last - anchor_prev_last))
                 ranges.append((pessimistic_slope, optimistic_slope))
         return ranges
     
@@ -241,9 +241,9 @@ class EmpiricalLearningModel:
     
     def get_performance_interval_at_target(self, target):
         pessimistic_slope, optimistic_slope = self.get_slope_range_in_last_segment()
-        sizes = sorted(np.unique(self.df["trainsize"]))
-        last_size = sizes[-1]
-        normal_estimates = self.get_normal_estimates()[last_size]
+        anchors = sorted(np.unique(self.df["anchor"]))
+        last_anchor = anchors[-1]
+        normal_estimates = self.get_normal_estimates()[last_anchor]
         if normal_estimates["n"] > 1:
             last_conf = normal_estimates["conf"]
             if normal_estimates["std"] > 0:
@@ -259,47 +259,46 @@ class EmpiricalLearningModel:
             raise Exception("Confidence interval must not be nan!")
         if np.isnan(optimistic_slope):
             raise Exception("Slope must not be nan")
-        return pessimistic_slope * (target - last_size) + last_conf_lower, optimistic_slope * (target - last_size) + last_conf_upper
+        return pessimistic_slope * (target - last_anchor) + last_conf_lower, optimistic_slope * (target - last_anchor) + last_conf_upper
         
     def get_ipl(self):
-        sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores = [np.mean(self.df[self.df["trainsize"] == s]["score_test"]) for s in sizes]
+        anchors = sorted(list(pd.unique(self.df["anchor"])))
+        scores = [np.mean(self.df[self.df["anchor"] == a]["score_test"]) for a in anchors]
         def ipl(beta):
             a, b, c = tuple(beta.astype(float))
             pl = lambda x: a + b * x **(-c)
             penalty = []
-            for i, size in enumerate(sizes):
-                penalty.append((pl(size) - scores[i])**2)
+            for i, anchor in enumerate(anchors):
+                penalty.append((pl(anchor) - scores[i])**2)
             return np.array(penalty)
 
         a, b, c = tuple(scipy.optimize.least_squares(ipl, np.array([1,1,1]), method="lm").x)
         return lambda x: a + b * x **(-c)
     
     def get_mmf(self, validation_curve = True):
-        sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores = [np.mean(self.df[self.df["trainsize"] == s]["score_" + ("test" if validation_curve else "train")]) for s in sizes]
-        weights = [2**i for i in range(len(sizes))]
+        anchors = sorted(list(pd.unique(self.df["anchor"])))
+        scores = [np.mean(self.df[self.df["anchor"] == a]["score_" + ("test" if validation_curve else "train")]) for a in anchors]
+        weights = [2**i for i in range(len(anchors))]
         def mmf(beta):
             a, b, c, d = tuple(beta.astype(float))
             fun = lambda x: (a * b + c * x ** d)/(b + x ** d)
             penalties = []
-            for i, size in enumerate(sizes):
-                penalty = weights[i]  * ((scores[i] - fun(size)) ** 2) # give more weights on higher anchors
+            for i, anchor in enumerate(anchors):
+                penalty = weights[i]  * ((scores[i] - fun(anchor)) ** 2) # give more weights on higher anchors
                 penalties.append(penalty if not np.isnan(penalty) else 10**6)
             return sum(penalties)
         
         factor = 1 if validation_curve else -1
         const = {
-            "type": "ineq", "fun": lambda x: -factor * x[1] * (x[2]-x[0])*x[3],
-            #"type": "ineq", "fun": lambda x: factor if all([(x[2] - x[0]) * ((x[3] + 1)* size**x[3] - x[1]*x[3] + x[2]) for size in np.linspace(64, 10000, 1000)]) else -factor
+            "type": "ineq", "fun": lambda x: -factor * x[1] * (x[2]-x[0])*x[3]
         }
 
         a, b, c, d = tuple(scipy.optimize.minimize(mmf, np.array([0.5,1,1,-1]), constraints=const).x)
         return (a, b, c, d), lambda x: (a * b + c * x ** d)/(b + x ** d)
     
-    def predict_runtime(self, target_size):
+    def predict_runtime(self, target_anchor):
         lr = sklearn.linear_model.LinearRegression()
-        X = self.df[["trainsize"]].values
+        X = self.df[["anchor"]].values
         X = np.row_stack([X, [[0]]])
         X = np.column_stack([X, X[:]**2])
         y = self.df["runtime"].values
@@ -307,11 +306,11 @@ class EmpiricalLearningModel:
         lr.fit(X, y)
         b = np.abs(lr.coef_[0])
         a = np.abs(lr.coef_[1])
-        return a * (target_size**2) + b * target_size + lr.intercept_
+        return a * (target_anchor**2) + b * target_anchor + lr.intercept_
     
     def get_max_size_for_runtime(self, runtime):
         lr = sklearn.linear_model.LinearRegression()
-        X = self.df[["trainsize"]].values
+        X = self.df[["anchor"]].values
         X = np.row_stack([X, [[0]]])
         X = np.column_stack([X, X[:]**2])
         y = self.df["runtime"].values
@@ -323,32 +322,32 @@ class EmpiricalLearningModel:
         return -b/(2 * a) + np.sqrt(inner)
     
     def visualize(self, max_anchor = 1000, r = None):
-        sizes = sorted(list(pd.unique(self.df["trainsize"])))
-        scores_train = [self.get_normal_estimates(s, validation=False) for s in sizes]
-        scores_valid = [self.get_normal_estimates(s, validation=True) for s in sizes]
+        anchors = sorted(list(pd.unique(self.df["anchor"])))
+        scores_train = [self.get_normal_estimates(a, validation=False) for a in anchors]
+        scores_valid = [self.get_normal_estimates(a, validation=True) for a in anchors]
         lc_train_params, lc_train = self.get_mmf(False)
         lc_test_params, lc_valid = self.get_mmf(True)
         
         fig, ax = plt.subplots()
-        ax.scatter(sizes, [e["mean"] for e in scores_train])
-        ax.scatter(sizes, [e["mean"] for e in scores_valid])
+        ax.scatter(anchors, [e["mean"] for e in scores_train])
+        ax.scatter(anchors, [e["mean"] for e in scores_valid])
         domain = np.linspace(64, max_anchor, 100)
         ax.plot(domain, lc_train(domain), color="C0")
-        ax.fill_between(sizes, [v["mean"] - v["std"] for v in scores_train], [v["mean"] + v["std"] for v in scores_train], alpha=0.2, color="C0")
+        ax.fill_between(anchors, [v["mean"] - v["std"] for v in scores_train], [v["mean"] + v["std"] for v in scores_train], alpha=0.2, color="C0")
         ax.plot(domain, lc_valid(domain), color="C1")
-        ax.fill_between(sizes, [v["mean"] - v["std"] for v in scores_valid], [v["mean"] + v["std"] for v in scores_valid], alpha = 0.2, color="C1")
+        ax.fill_between(anchors, [v["mean"] - v["std"] for v in scores_valid], [v["mean"] + v["std"] for v in scores_valid], alpha = 0.2, color="C1")
         
         # create lines that project based on convexity
         val_at_target_pessimistic, val_at_target_optimistic = self.get_performance_interval_at_target(max_anchor)
-        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"] + scores_valid[-2]["std"], val_at_target_pessimistic], color="C3", linestyle="--")
-        ax.plot([sizes[-2], max_anchor], [scores_valid[-2]["mean"] - scores_valid[-2]["std"], val_at_target_optimistic], color="C2", linestyle="--")
+        ax.plot([anchors[-2], max_anchor], [scores_valid[-2]["mean"] + scores_valid[-2]["std"], val_at_target_pessimistic], color="C3", linestyle="--")
+        ax.plot([anchors[-2], max_anchor], [scores_valid[-2]["mean"] - scores_valid[-2]["std"], val_at_target_optimistic], color="C2", linestyle="--")
         
         if r is not None:
             ax.axhline(r, color="black", linestyle="--")
         plt.show()
     
 
-def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.005, MAX_EVALUATIONS=10, target_anchor=.9, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3, use_train_curve=True,fix_train_test_folds=False, evaluator=None, scoring="accuracy", visualize_lcs = False, exceptions = "message"):
+def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION=0.005, MAX_EVALUATIONS=10, target_anchor=.9, schedule=None, return_estimate_on_incomplete_runs=False, max_conf_interval_size_default=0.1, max_conf_interval_size_target=0.001, enforce_all_anchor_evaluations=False, seed=0, verbose=False, logger=None, min_evals_for_stability=3, use_train_curve=True,fix_train_test_folds=False, evaluator=None, scoring="accuracy", visualize_lcs = False, exceptions = "message"):
     """
     Evaluates a learner in an iterative fashion, using learning curves. The
     method builds upon the assumption that learning curves are convex. After
@@ -372,6 +371,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     evaluations to be performed
     :param MAX_EVALUATIONS:
     :param target_anchor:
+    :param schedule: define the anchors for which scores should be computed
     :param return_estimate_on_incomplete_runs:
     :param max_conf_interval_size_default:
     :param max_conf_interval_size_target:
@@ -413,7 +413,10 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
     
     # initialize important variables and datastructures
     max_exp = np.log(target_anchor) / np.log(base)
-    schedule = [base**i for i in list(range(min_exp, int(np.ceil(max_exp))))] + [target_anchor]
+    if schedule is None:
+        schedule = [base**i for i in list(range(min_exp, int(np.ceil(max_exp))))] + [target_anchor]
+    elif any(np.argsort(schedule) != list(range(len(schedule)))):
+        raise ValueError("parameter `schedule` must be sorted")
     slopes = (len(schedule) - 1) * [np.nan]
     elm = EmpiricalLearningModel(learner_inst, X, y, target_anchor, seed, fix_train_test_folds, evaluator = evaluator, scoring = scoring)
     T = len(schedule) - 1
@@ -458,7 +461,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
             # compute next sample
             try:
                 seed_used = 13 * (1 + seed) + num_evaluations_at_t
-                logger.debug(f"Adding point at size {s_t} with seed is {seed_used}. Remaining time: {remaining_time}s")
+                logger.debug(f"Adding point at anchor {s_t} with seed is {seed_used}. Remaining time: {remaining_time}s")
                 score_train, score_test = elm.compute_and_add_sample(s_t, seed_used, (deadline - time.time() - 0.1) * 1000 if deadline is not None else None, verbose=verbose)
                 num_evaluations_at_t += 1
                 logger.debug(f"Sample computed successfully. Observed performance was {np.round(score_train, 4)} (train) and {np.round(score_test, 4)} (test).")
@@ -512,13 +515,13 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
             # prepare data for cut-off summary
             pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
             estimates = elm.get_normal_estimates()
-            sizes = sorted(np.unique(elm.df["trainsize"]))
+            anchors = sorted(np.unique(elm.df["anchor"]))
             i = -1
             if min_evals_for_stability > 1:
-                while len(elm.df[elm.df["trainsize"] == sizes[i]]) < 2:
+                while len(elm.df[elm.df["anchor"] == anchors[i]]) < 2:
                     i -= 1
-            last_size = s_t
-            normal_estimates_last = estimates[last_size]
+            last_anchor = s_t
+            normal_estimates_last = estimates[last_anchor]
             last_conf = normal_estimates_last["conf"]
             
             # inform about cut-off
@@ -527,17 +530,17 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
             Data:
             {elm.df}
             Normal Estimates: """ + ''.join(["\n\t\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") for s_t in schedule]) + "\n\tSlope Ranges:" + ''.join(["\n\t\t" + str(schedule[i]) + " - " + str(schedule[i + 1]) + ": " +  str(e) for i, e in enumerate(elm.get_slope_ranges())]) + f"""
-            Last size: {last_size}
-            Optimistic offset at last evaluated anchor {last_size}: {last_conf[1]}
+            Last anchor: {last_anchor}
+            Optimistic offset at last evaluated anchor {last_anchor}: {last_conf[1]}
             Optimistic slope from last segment: {optimistic_slope}
-            Remaining steps: {(target_anchor - last_size)}
-            Estimated interval at target size {target_anchor} (pessimistic, optimistic): {estimate_for_target_performance}""")
+            Remaining steps: {(target_anchor - last_anchor)}
+            Estimated interval at target anchor {target_anchor} (pessimistic, optimistic): {estimate_for_target_performance}""")
             return np.nan, normal_estimates_last["mean"], estimates, elm
 
         elif not enforce_all_anchor_evaluations and (elm.get_mean_performance_at_anchor(s_t) > r or (t >= 3 and elm.get_lc_estimate_at_target(target_anchor) >= r - MAX_ESTIMATE_MARGIN_FOR_FULL_EVALUATION)):
             t = T
             if (elm.get_mean_performance_at_anchor(s_t) > r):
-                logger.info(f"Current mean is {elm.get_mean_performance_at_anchor(s_t)}, which is already an improvement over r = {r}. Hence, stepping to full size.")
+                logger.info(f"Current mean is {elm.get_mean_performance_at_anchor(s_t)}, which is already an improvement over r = {r}. Hence, stepping to full anchor.")
             else:
                 logger.info(f"Candidate appears to be competitive (predicted performance at {target_anchor} is {elm.get_lc_estimate_at_target(target_anchor)}. Jumping to last anchor in schedule: {t}")
         else:
@@ -547,7 +550,7 @@ def lccv(learner_inst, X, y, r, timeout=None, base=2, min_exp=6, MAX_ESTIMATE_MA
                 estimates = elm.get_normal_estimates()
                 logger.debug("LC: " + ''.join(["\n\t" + str(s_t) + ": " + (str(estimates[s_t]) if s_t in estimates else "n/a") + ". Avg. runtime: " + str(np.round(np.mean(elm.get_runtimes_at_anchor(s_t) / 1000), 1)) for s_t in schedule if len(elm.get_runtimes_at_anchor(s_t)) > 0]))
                 if t > 2:
-                    logger.debug(f"Estimate for target size {target_anchor}: {elm.get_performance_interval_at_target(target_anchor)[1]}")
+                    logger.debug(f"Estimate for target anchor {target_anchor}: {elm.get_performance_interval_at_target(target_anchor)[1]}")
     
     # output final reports
     toc = time.time()
