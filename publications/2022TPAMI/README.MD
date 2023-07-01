@@ -15,4 +15,4 @@ python runexperiment.py --dataset_id=61 --train_size=0.8 --seed=0 --algorithm=lc
 ```
 
 The results for this specific dataset/algorithm/seed combination will be stored in a file called `results.txt` in the `folder` you provided. 
-At the time of running the experiments, py-experimenter had not yet been released so that experiment management was conducted through the respective Java API. However, the main experiment code itself is in Python.
+At the time of running the experiments, [py-experimenter](https://github.com/tornede/py_experimenter) had not yet been released so that experiment management was conducted through the respective Java API. However, the main experiment code itself is in Python.
