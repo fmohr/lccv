@@ -47,9 +47,6 @@ publisher = {IEEE Computer Society},
 address = {Los Alamitos, CA, USA},
 month = {aug}
 }
-
-Note that the supplement material can be downloaded on the above link in the *Web Extra* menu.
 ```
 
-We are actively revising a version of this paper for a rigorously peer-reviewed journal.
-
+Note that the supplement material can be downloaded on the above link in the *Web Extra* menu.
