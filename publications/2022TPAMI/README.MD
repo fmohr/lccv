@@ -3,7 +3,7 @@
 ## Comparison of LCCV vs other techniques in Random Search
 
 ### Gathering Raw Results
-The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity](https://github.com/fmohr/lccv/publications/2022TPAMI/experiment-controller/python/singularity).
+The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity).
 
 To replicate a specific experiment, you can proceed as follows (tested only under Linux):
 ```
