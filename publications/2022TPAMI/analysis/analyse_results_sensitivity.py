@@ -7,8 +7,8 @@ import pandas as pd
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--result_file', type=str, default=('../../../results/sensitivity.csv'))
-    parser.add_argument('--output_dir', type=str, default=os.path.expanduser('~/experiments/lccv_sensitivity'))
+    parser.add_argument('--result_file', type=str, default=('../results/sensitivity.csv'))
+    parser.add_argument('--output_dir', type=str, default=os.path.expanduser('plots/sensitivity'))
     parser.add_argument('--dimension1', type=str, default='dataset_id')
     parser.add_argument('--extension', type=str, default='png')
     return parser.parse_args()
