@@ -1,8 +1,8 @@
 # Reproducing Results
 
-## Comparison of LCCV vs other techniques in Random Search
+## Gathering Raw Results
 
-### Gathering Raw Results
+### Comparison of LCCV vs other techniques in Random Search
 The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py).
 
 To replicate a specific experiment, you can proceed as follows (tested only under Linux):
@@ -22,7 +22,7 @@ Here,
 The results for this specific dataset/algorithm/seed combination will be stored in a file called `results.txt` in the `folder` you provided. 
 At the time of running the experiments, [py-experimenter](https://github.com/tornede/py_experimenter) had not yet been released so that experiment management was conducted through the respective Java API. However, the main experiment code itself is in Python.
 
-### Creating The Result Figures of the Paper
+## Creating The Result Figures of the Paper and Supplement
 This is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/evaluation-randomsearch.ipynb).
 This notebook is built upon a file containing all results as computed in the above paragraph in a single file `results.csv`, which has been added to the repository for convenience.
 For ultimate reproduciblility, one could re-run all the experiments defined in the [experiment definition file](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/conf/experiments.conf) and gather the respective results from each `results.txt` into a single `results.csv` and locate it into the same folder as the analysis notebook.
