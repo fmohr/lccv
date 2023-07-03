@@ -8,7 +8,7 @@ This section explains how the figures and tables in the paper and the supplement
 
 The following section below explains how these files were computed and how they can be reproduced.
 
-For the figures in the main paper and the comparative plots in the appendix, this is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2 - evaluation-randomsearch.ipynb).
+For the figures in the main paper and the comparative plots in the appendix, this is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb).
 This notebook is built upon a file containing all results as computed in the above paragraph in a single file `results.csv`, which has been added to the repository for convenience.
 For ultimate reproduciblility, one could re-run all the experiments defined in the [experiment definition file](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/conf/experiments.conf) and gather the respective results from each `results.txt` into a single `results.csv` and locate it into the same folder as the analysis notebook.
 
