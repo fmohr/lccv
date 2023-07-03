@@ -1,0 +1,10 @@
+pebble
+numpy
+pandas
+openml
+psutil
+configspace<0.7.1
+func_timeout
+matplotlib
+scikit-learn
+tqdm
