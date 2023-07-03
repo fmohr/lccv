@@ -1,12 +1,13 @@
 # Reproducing Results
 
-## Gathering Raw Results
+## Comparison of LCCV vs other techniques in Random Search
 
-### Comparison of LCCV vs other techniques in Random Search
+### Gathering Raw Results
+
 The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py).
 
 To replicate a specific experiment, you can proceed as follows (tested only under Linux):
-```
+```bash
 cd lccv/publications/2022TPAMI/experiment-controller/python/singularity
 python -m venv venv
 source venv/bin/activate
@@ -22,7 +23,18 @@ Here,
 The results for this specific dataset/algorithm/seed combination will be stored in a file called `results.txt` in the `folder` you provided. 
 At the time of running the experiments, [py-experimenter](https://github.com/tornede/py_experimenter) had not yet been released so that experiment management was conducted through the respective Java API. However, the main experiment code itself is in Python.
 
-## Creating The Result Figures of the Paper and Supplement
-This is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/evaluation-randomsearch.ipynb).
+Results for the sensitivity analysis can be gathered in pretty much the same way but using the [lccv/publications/2022TPAMI/experiment-controller/python/singularity/run_sensitivity.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/run_sensitivity.py) script.
+
+Usage example:
+``` bash
+python run_sensitivity.py --experiment_idx=2 --dataset_id=61 --num_pipelines=20
+```
+
+### Creating The Result Figures of the Paper and Supplement
+For the figures in the main paper and the comparative plots in the appendix, this is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/evaluation-randomsearch.ipynb).
 This notebook is built upon a file containing all results as computed in the above paragraph in a single file `results.csv`, which has been added to the repository for convenience.
 For ultimate reproduciblility, one could re-run all the experiments defined in the [experiment definition file](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/conf/experiments.conf) and gather the respective results from each `results.txt` into a single `results.csv` and locate it into the same folder as the analysis notebook.
+
+For the sensitivity analysis in the appendix, it is done via the [sensitivity analysis script](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/analyse_results_sensitivity.py), which just expects the sensitivity results to be stored in a `sensitivity.csv` file (by default expected in `../results/`) and then will generate plots into the `plots/sensitivity` subfolder.
+
+## 
