@@ -2,7 +2,7 @@
 
 ## Creating The Result Figures of the Paper and Supplement
 This section explains how the figures and tables in the paper and the supplement were computed based on these files of raw results:
-* [lccv/publications/2022TPAMI/results/results_randomsearch.csv](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/results/results_randomsearch)
+* [lccv/publications/2022TPAMI/results/results_randomsearch.csv](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/results/results_randomsearch.csv)
 * [lccv/publications/2022TPAMI/results/lccollection.csv.tar.gz](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/results/lccollection.csv.tar.gz)
 * [lccv/publications/2022TPAMI/results/sensitivity.csv](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/results/sensitivity.csv)
 
