@@ -7,7 +7,7 @@ import pandas as pd
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--result_file', type=str, default=('../../../../../data/sensitivity.csv'))
+    parser.add_argument('--result_file', type=str, default=('../../../results/sensitivity.csv'))
     parser.add_argument('--output_dir', type=str, default=os.path.expanduser('~/experiments/lccv_sensitivity'))
     parser.add_argument('--dimension1', type=str, default='dataset_id')
     parser.add_argument('--extension', type=str, default='png')
@@ -35,12 +35,12 @@ def run(args):
         dimension2_unique_vals = df[dimension2].unique()
 
         for dimension2_value in dimension2_unique_vals:
-            frame_double_sliced = frame_sliced.loc[frame_sliced[dimension2] == dimension2_value]
+            frame_double_sliced = frame_sliced.loc[frame_sliced[dimension2] == dimension2_value].copy()
             try:
-                frame_double_sliced.loc[:, 'hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(np.int)
+                    frame_double_sliced['hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(int)
             except ValueError:
                 try:
-                    frame_double_sliced.loc[:, 'hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(np.float64)
+                    frame_double_sliced['hyperparameter_value'] = frame_double_sliced['hyperparameter_value'].astype(np.float64)
                 except ValueError:
                     pass
             frame_double_sliced = frame_double_sliced[['hyperparameter_value', 'error_rate', 'runtime']].groupby('hyperparameter_value')

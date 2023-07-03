@@ -12,8 +12,8 @@ import json
 def parse_args():
     default_path = '~/experiments/lccv_sensitivity/'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--experiment_idx', type=int)
-    parser.add_argument('--dataset_id', type=int)
+    parser.add_argument('--experiment_idx', required=True, type=int)
+    parser.add_argument('--dataset_id', required=True, type=int)
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--num_pipelines', type=int, default=200)
     parser.add_argument('--num_seeds', type=int, default=10)
@@ -184,7 +184,7 @@ def run_experiment_index_based(args):
     hyperparameter, value = pipeline_args(int(np.floor(args.experiment_idx / args.num_seeds)))
     config_map = {hyperparameter: value, 'verbose': True}
     print(f"Config map: {config_map}")
-    folder = os.path.expanduser('~/experiments/lccv_sensitivity/%d/%s/%s/%d' % (args.dataset_id, hyperparameter, str(value), seed))
+    folder = os.path.expanduser(args.folder + '/lccv_sensitivity/%d/%s/%s/%d' % (args.dataset_id, hyperparameter, str(value), seed))
     os.makedirs(folder, exist_ok=True)
     run_experiment(args.dataset_id, args.num_pipelines, seed, args.timeout, folder, args.prob_dp, args.prob_fp, config_map)
 
