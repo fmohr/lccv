@@ -28,17 +28,27 @@ If you use LCCV in a scientific publication, we would appreciate a reference to
 the following paper:
 
 [Felix Mohr and Jan N. van Rijn<br/>
-**Towards Model Selection using Learning Curve Cross-Validation**<br/>
-*8th ICML Workshop on Automated Machine Learning (AutoML)*](https://openreview.net/attachment?id=EC_IHbAaMG&name=crc_pdf)
+**Fast and Informative Model Selection Using Learning Curve Cross-Validation**<br/>
+*IEEE Transactions on Pattern Analysis and Machine Intelligence*](https://www.computer.org/csdl/journal/tp/2023/08/10064171/1LlCTJPbAek)
 
 Bibtex entry:
 ```bibtex
-@inproceedings{mohr2021towards,
-  author = {Mohr, Felix and and van Rijn, Jan N.},
-  title = {Towards Model Selection using Learning Curve Cross-Validation},
-  booktitle = {8th ICML Workshop on Automated Machine Learning (AutoML)},
-  year = {2021}
+@article{lccv,
+author = {F. Mohr and J. N. van Rijn},
+journal = {IEEE Transactions on Pattern Analysis &amp; Machine Intelligence},
+title = {Fast and Informative Model Selection Using Learning Curve Cross-Validation},
+year = {2023},
+volume = {45},
+number = {08},
+issn = {1939-3539},
+pages = {9669-9680},
+doi = {10.1109/TPAMI.2023.3251957},
+publisher = {IEEE Computer Society},
+address = {Los Alamitos, CA, USA},
+month = {aug}
 }
+
+Note that the supplement material can be downloaded on the above link in the *Web Extra* menu.
 ```
 
 We are actively revising a version of this paper for a rigorously peer-reviewed journal.
