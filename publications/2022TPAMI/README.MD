@@ -8,7 +8,16 @@ This section explains how the figures and tables in the paper and the supplement
 
 The subsequent section below explains how these files were computed and how they can be reproduced.
 
-Here is how each figure (except the schematic Fig. 1) in the main paper and in the appendix can be reproduced:
+Here is how each figure (except the schematic Fig. 1) in the main paper and in the appendix can be reproduced.
+First prepare a suitable Python environment (tested for 3.9):
+```bash
+cd lccv/publications/2022TPAMI
+python -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+jupyter-notebook
+```
 
 * Run the [analysis notebook for the evaluation of the validation techniques in Random Search](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb) to produce
   * Fig. 2 in the main paper
