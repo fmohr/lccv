@@ -1,18 +1,38 @@
 # Reproducing Results
 
-## Creating The Result Figures of the Paper and Supplement
+## Creating The Result Figures and Tables of the Paper and Supplement
 This section explains how the figures and tables in the paper and the supplement were computed based on these files of raw results:
 * [lccv/publications/2022TPAMI/results/results_randomsearch.csv](https://raw.githubusercontent.com/fmohr/lccv/master/publications/2022TPAMI/results/results_randomsearch.csv)
 * [lccv/publications/2022TPAMI/results/lccollection.csv.tar.gz](https://raw.githubusercontent.com/fmohr/lccv/master/publications/2022TPAMI/results/lccollection.csv.tar.gz)
 * [lccv/publications/2022TPAMI/results/sensitivity.csv](https://raw.githubusercontent.com/fmohr/lccv/master/publications/2022TPAMI/results/sensitivity.csv)
 
-The following section below explains how these files were computed and how they can be reproduced.
+The subsequent section below explains how these files were computed and how they can be reproduced.
 
-For the figures in the main paper and the comparative plots in the appendix, this is done via the [analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb).
+Here is how each figure (except the schematic Fig. 1) in the main paper and in the appendix can be reproduced:
+
+* Run the [analysis notebook for the evaluation of the validation techniques in Random Search](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb) to produce
+  * Fig. 2 in the main paper
+  * Fig. 2, Fig. 3, Fig. 4, Fig. 5 in the appendix
+  * Table 2 and Table 3 in the appendix
+
 This notebook is built upon a file containing all results as computed in the above paragraph in a single file `results.csv`, which has been added to the repository for convenience.
-For ultimate reproduciblility, one could re-run all the experiments defined in the [experiment definition file](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/conf/experiments.conf) and gather the respective results from each `results.txt` into a single `results.csv` and locate it into the same folder as the analysis notebook.
 
-For the sensitivity analysis in the appendix, it is done via the [sensitivity analysis script](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/analyse_results_sensitivity.py), which just expects the sensitivity results to be stored in a `sensitivity.csv` file (by default expected in `../results/`) and then will generate plots into the `plots/sensitivity` subfolder.
+* Run the [analysis notebook for the evaluation of the extrapolation techniques](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/4%20-%20evaluation-extrapolation.ipynb) to produce
+  * Fig. 3 and Fig. 4 in the main paper
+
+* Run the [dataset property notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/0%20-%20dataset-properties.ipynb) to produce
+  * Fig. 1 in the appendix
+  * Table 1 in the appendix
+
+* Run the [sensitivity analysis script](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20analyse_results_sensitivity.py)
+  * to produce Fig. 6 in the appendix
+
+  This script just expects the sensitivity results to be stored in a `sensitivity.csv` file (by default expected in `../results/`) and then will generate plots into the `plots/sensitivity` subfolder.
+
+* Run the [convexity analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/5%20-%20convexity-analysis.ipynb)
+  * to produce the figures with the learning curves in the appendix
+  * to confirm that most learning curves exhibit a convex behavior
+
 
 
 ## Gathering Raw Results
@@ -36,6 +56,9 @@ Here,
 
 The results for this specific dataset/algorithm/seed combination will be stored in a file called `results.txt` in the `folder` you provided. 
 At the time of running the experiments, [py-experimenter](https://github.com/tornede/py_experimenter) had not yet been released so that experiment management was conducted through the respective Java API. However, the main experiment code itself is in Python.
+
+For ultimate reproduciblility, one could re-run all the experiments defined in the [experiment definition file](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/conf/experiments.conf) and gather the respective results from each `results.txt` into a single `results_randomsearch.csv` and locate it into the same folder as the analysis notebook.
+
 
 Results for the sensitivity analysis can be gathered in pretty much the same way but using the [lccv/publications/2022TPAMI/experiment-controller/python/singularity/run_sensitivity.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/run_sensitivity.py) script.
 
