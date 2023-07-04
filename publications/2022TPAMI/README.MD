@@ -19,31 +19,31 @@ pip install -r requirements.txt
 jupyter-notebook
 ```
 
-* Run the [analysis notebook for the evaluation of the validation techniques in Random Search](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb) to produce
+* Run the [analysis notebook for the evaluation of the validation techniques in Random Search (2 - evaluation-randomsearch.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20evaluation-randomsearch.ipynb) to produce
   * Fig. 2 in the main paper
   * Fig. 2, Fig. 3, Fig. 4, Fig. 5 in the appendix
   * Table 2 and Table 3 in the appendix
 
 This notebook is built upon a file containing all results as computed in the above paragraph in a single file `results.csv`, which has been added to the repository for convenience.
 
-* Run the [analysis notebook for the evaluation of the extrapolation techniques](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/4%20-%20evaluation-extrapolation.ipynb) to produce
+* Run the [analysis notebook for the evaluation of the extrapolation techniques (4 - evaluation-extrapolation.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/4%20-%20evaluation-extrapolation.ipynb) to produce
   * Fig. 3 and Fig. 4 in the main paper
 
-* Run the [dataset property notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/0%20-%20dataset-properties.ipynb) to produce
+* Run the [dataset property notebook (0 - dataset-properties.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/0%20-%20dataset-properties.ipynb) to produce
   * Fig. 1 in the appendix
   * Table 1 in the appendix
 
-* Run the [sensitivity analysis script](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20analyse_results_sensitivity.py)
+* Run the [sensitivity analysis script (2 - analyse_results_sensitivity.py)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/2%20-%20analyse_results_sensitivity.py)
   * to produce Fig. 6 in the appendix
 
   This script just expects the sensitivity results to be stored in a `sensitivity.csv` file (by default expected in `../results/`) and then will generate plots into the `plots/sensitivity` subfolder.
 
-* Run the [convexity analysis notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/5%20-%20convexity-analysis.ipynb)
+* Run the [convexity analysis notebook (5 - convexity-analysis.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/5%20-%20convexity-analysis.ipynb)
   * to produce the figures with the learning curves in the appendix
   * to confirm that most learning curves exhibit a convex behavior
 
 
-* Run the [pipeline sampling notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/1%20-%20pipeline-sampling.ipynb) to generate the 10 sequences of 200 pipelines that were subject to the evaluation.
+* Run the [pipeline sampling notebook (1 - pipeline-sampling.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/1%20-%20pipeline-sampling.ipynb) to generate the 10 sequences of 200 pipelines that were subject to the evaluation.
 
 ## Gathering Raw Results
 
