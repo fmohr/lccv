@@ -43,6 +43,7 @@ This notebook is built upon a file containing all results as computed in the abo
   * to confirm that most learning curves exhibit a convex behavior
 
 
+* Run the [pipeline sampling notebook](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/1%20-%20pipeline-sampling.ipynb) to generate the 10 sequences of 200 pipelines that were subject to the evaluation.
 
 ## Gathering Raw Results
 
