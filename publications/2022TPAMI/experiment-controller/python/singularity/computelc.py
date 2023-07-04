@@ -15,7 +15,6 @@ if __name__ == '__main__':
     file = sys.argv[4]
     
     num_seeds = 10
-	
     
     # load data
     print("Reading dataset")
