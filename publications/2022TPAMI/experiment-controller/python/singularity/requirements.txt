@@ -8,3 +8,4 @@ func_timeout
 matplotlib
 scikit-learn
 tqdm
+gzip
