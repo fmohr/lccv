@@ -9,7 +9,7 @@ This section explains how the figures and tables in the paper and the supplement
 The subsequent section below explains how these files were computed and how they can be reproduced.
 
 Here is how each figure (except the schematic Fig. 1) in the main paper and in the appendix can be reproduced.
-First prepare a suitable Python environment (tested for 3.9):
+First prepare a suitable Python environment (tested for 3.11):
 ```bash
 cd lccv/publications/2022TPAMI
 python -m venv venv
@@ -50,7 +50,7 @@ This notebook is built upon a file containing all results as computed in the abo
 ### Computation of results of LCCV and other techniques when being used in Random Search
 The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py).
 
-To replicate a specific experiment, you can proceed as follows using *the same environment installed with the code above and departing from the TPAMI2022 folder* (tested only under Linux with Python 3.9):
+To replicate a specific experiment, you can proceed as follows using *the same environment installed with the code above and departing from the TPAMI2022 folder* (tested only under Linux with Python 3.11):
 ```bash
 cd experiment-controller/python/singularity
 python runexperiment.py --dataset_id=61 --train_size=0.8 --seed=0 --algorithm=lccv-flex --folder=. --num_pipelines=20
