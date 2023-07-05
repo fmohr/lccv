@@ -50,13 +50,9 @@ This notebook is built upon a file containing all results as computed in the abo
 ### Computation of results of LCCV and other techniques when being used in Random Search
 The essential experiment program code can be found in [lccv/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/experiment-controller/python/singularity/runexperiment.py).
 
-To replicate a specific experiment, you can proceed as follows (tested only under Linux):
+To replicate a specific experiment, you can proceed as follows using *the same environment installed with the code above and departing from the TPAMI2022 folder* (tested only under Linux with Python 3.9):
 ```bash
-cd lccv/publications/2022TPAMI/experiment-controller/python/singularity
-python -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+cd experiment-controller/python/singularity
 python runexperiment.py --dataset_id=61 --train_size=0.8 --seed=0 --algorithm=lccv-flex --folder=. --num_pipelines=20
 ```
 Here,
