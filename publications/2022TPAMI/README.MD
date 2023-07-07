@@ -38,6 +38,11 @@ This notebook is built upon a file containing all results as computed in the abo
 
   This script just expects the sensitivity results to be stored in a `sensitivity.csv` file (by default expected in `../results/`) and then will generate plots into the `plots/sensitivity` subfolder.
 
+  Then run it as
+  ```bash
+  python 2 - analyse_results_sensitivity.py --dimension1=hyperparameter_name
+  ```
+
 * Run the [convexity analysis notebook (5 - convexity-analysis.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/5%20-%20convexity-analysis.ipynb)
   * to produce the figures with the learning curves in the appendix
   * to confirm that most learning curves exhibit a convex behavior
