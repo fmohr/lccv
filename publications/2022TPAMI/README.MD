@@ -40,7 +40,7 @@ This notebook is built upon a file containing all results as computed in the abo
 
   Then run it as
   ```bash
-  python 2 - analyse_results_sensitivity.py --dimension1=hyperparameter_name
+  python "2 - analyse_results_sensitivity.py" --dimension1=hyperparameter_name
   ```
 
 * Run the [convexity analysis notebook (5 - convexity-analysis.ipynb)](https://github.com/fmohr/lccv/blob/master/publications/2022TPAMI/analysis/5%20-%20convexity-analysis.ipynb)
