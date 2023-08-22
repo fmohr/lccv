@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
   name = 'lccv',
   packages = ['lccv'],
-  version = '0.2.0',
+  version = '0.2.1',
   license='MIT',
   description = 'The official Learning Curve Database package',
   author = 'Felix Mohr',                   # Type in your name
