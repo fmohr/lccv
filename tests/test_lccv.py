@@ -113,11 +113,47 @@ class TestLccv(unittest.TestCase):
         # evaluator 1: Does not return a time
         # evaluator 2: Does return a runtime
         rs = np.random.RandomState(0)
-        evaluator1 = lambda learner_inst, size, timeout: (0.66 + rs.normal(scale=0.1), 0.66 + rs.normal(scale=0.1))
-        evaluator2 = lambda learner_inst, size, timeout: (0.33 + rs.normal(scale=0.1), 0.33 + rs.normal(scale=0.1), 10**4)
+
+        class CustomEvaluator:
+
+            def __init__(self, fittime):
+                self.fittime = fittime
+
+            def __call__(self, learner_inst, size, timeout, base_scoring, additional_scorings, vals):
+                results = {
+                    "fittime": self.fittime
+                }
+                for scoring, _ in [base_scoring] + additional_scorings:
+                    results.update({
+                    f"score_train_{scoring}": 0.66 + rs.normal(scale=0.1),
+                    f"scoretime_train_{scoring}": 0,
+                    f"score_test_{scoring}": 0.66 + rs.normal(scale=0.1),
+                    f"scoretime_test_{scoring}": 0
+                })
+                return results
+        evaluator1 = CustomEvaluator(fittime=0)
+        evaluator2 = CustomEvaluator(fittime=10**4)
         for i, evaluator in enumerate([evaluator1, evaluator2]):
+
+            # first test in isolation without LCCV
+            results = evaluator1(None, None, None, ("accuracy", sklearn.metrics.get_scorer("accuracy")), [], "test")
+            self.assertIsNotNone(results)
+
             self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-            _, _, res, elm = lccv.lccv(None, None, None, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, evaluator=evaluator, target_anchor = 135, exceptions = "raise")
+            _, _, res, elm = lccv.lccv(
+                None,
+                None,
+                None,
+                r=0.0,
+                base=2,
+                min_exp=4,
+                enforce_all_anchor_evaluations=True,
+                logger=self.lccv_logger,
+                evaluator=evaluator,
+                evaluator_kwargs={"vals": None},
+                target_anchor=135,
+                raise_exceptions=True
+            )
             self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
             for key, val in res.items():
                 self.logger.info(f"Key: {key}, Val: {val}")
@@ -126,7 +162,7 @@ class TestLccv(unittest.TestCase):
             self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
             
             # check that registered runtime is correct
-            mean_runtime = elm.df["runtime"].mean()
+            mean_runtime = elm.df["fittime"].mean()
             if i == 0:
                 self.assertTrue(mean_runtime < 10**-3)
             else:
@@ -137,24 +173,36 @@ class TestLccv(unittest.TestCase):
         features, labels = sklearn.datasets.load_digits(return_X_y=True)
         for scoring, is_binary in zip(["accuracy", "top_k_accuracy", "neg_log_loss", "roc_auc"], [False, True, False, True]):
             self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-            
+
             y = (labels == 0 if is_binary else labels)
-            
-            _, _, res, _ = lccv.lccv(learner, features, y, r = -np.inf, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, scoring=scoring, exceptions = "raise", seed = 3)
-            self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 256, 512, 1024, 1617})
+
+            _, _, res, elcm = lccv.lccv(
+                learner,
+                X=features,
+                y=y,
+                r=-np.inf,
+                base=2,
+                min_exp=2,
+                enforce_all_anchor_evaluations=True,
+                logger=self.lccv_logger,
+                base_scoring=scoring,
+                raise_exceptions=False, # small anchors will not work
+                seed=3
+            )
+            self.assertSetEqual(set(res.keys()), {4, 8, 16, 32, 64, 128, 256, 512, 1024, 1617})
             for key, val in res.items():
                 self.logger.info(f"Key: {key}, Val: {val}")
-                self.assertFalse(np.isnan(val['conf'][0]))
-                self.assertFalse(np.isnan(val['conf'][1]))
+                if key > 16:
+                    self.assertFalse(np.any(np.isnan(val['conf'])))
             self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
             
             # check that registered runtime is correct
-            mean_runtime = elm.df["runtime"].mean()
+            mean_runtime = elm.df["fittime"].mean()
             expected_runtime = 0 if i == 0 else 10**4
             self.assertEqual(expected_runtime, mean_runtime)
             
             # check that results are negative for neg_log_loss and positive for accuracy
-            means = np.array([e["mean"] for e in res.values()])
+            means = np.array([e["mean"] for size, e in res.items() if size > 16])
             if scoring == "neg_log_loss":
                 means *= -1
             self.assertTrue(np.all(means >= 0))
@@ -171,7 +219,6 @@ class TestLccv(unittest.TestCase):
         with self.assertRaises(ValueError):
             lccv.lccv(learner, features, labels, r=0.95, schedule=[20, 10], enforce_all_anchor_evaluations=False, logger=self.lccv_logger, seed = 12)
         self.logger.info(f"Finished test of LCCV with custom schedule on {learner.__class__.__name__}")
-        
 
     def test_lccv_all_points_finish(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
@@ -250,7 +297,15 @@ class TestLccv(unittest.TestCase):
             # run 80lccv
             self.logger.info("Running 80LCCV")
             start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r = r, target_anchor=.8, MAX_EVALUATIONS=5, scoring=scoring)[0]
+            score_80lccv = lccv.lccv(
+                sklearn.base.clone(pl),
+                X,
+                y,
+                r=r,
+                target_anchor=.8,
+                MAX_EVALUATIONS=5,
+                base_scoring=scoring
+            )[0]
             end = time.time()
             runtime_80lccv = end - start
             self.logger.info(f"Finished 80LCCV within {runtime_80lccv}s. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
