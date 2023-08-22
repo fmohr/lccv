@@ -198,9 +198,12 @@ class EmpiricalLearningModel:
         start_eval = time.time()
         if timeout is None:
             learner_inst.fit(X_train, y_train)
-        else:
+        elif timeout > 1:
             with pynisher.limit(func=learner_inst.fit, wall_time=timeout) as executor:
                 learner_inst = executor(X_train, y_train)
+        else:
+            raise pynisher.WallTimeoutException()
+
         end = time.time()
         self.logger.debug(f"Training ready after {int((end - start_eval) * 1000)}ms. Now obtaining predictions.")
         results = {
@@ -211,9 +214,11 @@ class EmpiricalLearningModel:
             try:
                 if timeout is None:
                     score_test = scoring_fun(learner_inst, X_test, y_test)
-                else:
+                elif timeout > start - start_eval + 1:
                     with pynisher.limit(func=scoring_fun, wall_time=timeout - (start - start_eval)) as executor:
                         score_test = executor(learner_inst, X_test, y_test)
+                else:
+                    raise pynisher.WallTimeoutException()
             except KeyboardInterrupt:
                 raise
             except pynisher.WallTimeoutException:
@@ -231,9 +236,11 @@ class EmpiricalLearningModel:
                 try:
                     if timeout is None:
                         score_train = scoring_fun(learner_inst, X_train, y_train)
-                    else:
+                    elif timeout > start - start_eval + 1:
                         with pynisher.limit(func=scoring_fun, wall_time=timeout - (start - start_eval)) as executor:
                             score_train = executor(learner_inst, X_train, y_train)
+                    else:
+                        raise pynisher.WallTimeoutException()
                 except KeyboardInterrupt:
                     raise
                 except pynisher.WallTimeoutException:
@@ -413,9 +420,14 @@ class EmpiricalLearningModel:
         a, b, c = tuple(scipy.optimize.least_squares(ipl, np.array([1, 1, 1]), method="lm").x)
         return lambda x: a + b * x **(-c)
     
-    def get_mmf(self, validation_curve = True):
+    def get_mmf(self, validation_curve=True, scoring=None):
         anchors = sorted(list(pd.unique(self.df["anchor"])))
-        scores = [np.mean(self.df[self.df["anchor"] == a]["score_" + ("test" if validation_curve else "train")]) for a in anchors]
+        if scoring is None:
+            scoring = self.base_scoring[0]
+        scores = [
+            np.mean(self.df[self.df["anchor"] == a]["score_" + ("test" if validation_curve else "train") + "_" + scoring])
+            for a in anchors
+        ]
         weights = [2**i for i in range(len(anchors))]
         def mmf(beta):
             a, b, c, d = tuple(beta.astype(float))
