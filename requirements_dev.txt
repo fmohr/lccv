@@ -1,0 +1,4 @@
+openml~=0.12.2
+parameterized~=0.8.1
+setuptools~=67.8.0
+naiveautoml~=0.0.16

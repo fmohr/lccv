@@ -10,32 +10,15 @@ import time
 import openml
 import pandas as pd
 
+
 def get_dataset(openmlid):
     ds = openml.datasets.get_dataset(openmlid)
     df = ds.get_data()[0].dropna()
     y = df[ds.default_target_attribute].values
-
-    categorical_attributes = df.select_dtypes(exclude=['number']).columns
-    expansion_size = 1
-    for att in categorical_attributes:
-        expansion_size *= len(pd.unique(df[att]))
-        if expansion_size > 10**5:
-            break
-
-    if expansion_size < 10**5:
-        X = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]]).values.astype(float)
-    else:
-        print("creating SPARSE data")
-        dfSparse = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]], sparse=True)
-
-        print("dummies created, now creating sparse matrix")
-        X = lil_matrix(dfSparse.shape, dtype=np.float32)
-        for i, col in enumerate(dfSparse.columns):
-            ix = dfSparse[col] != 0
-            X[np.where(ix), i] = 1
-        print("Done. shape is" + str(X.shape))
+    X = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]]).values.astype(float)
     return X, y
-    
+
+
 class TestLccv(unittest.TestCase):
     
     preprocessors = [None]#, sklearn.preprocessing.RobustScaler, sklearn.kernel_approximation.RBFSampler]
@@ -56,10 +39,10 @@ class TestLccv(unittest.TestCase):
 
         # configure lccv logger (by default set to WARN, change it to DEBUG if tests fail)
         lccv_logger = logging.getLogger("lccv")
-        lccv_logger.setLevel(logging.WARN)
+        lccv_logger.setLevel(logging.INFO)
         lccv_logger.addHandler(ch)
         elm_logger = logging.getLogger("elm")
-        elm_logger.setLevel(logging.WARN)
+        elm_logger.setLevel(logging.INFO)
         elm_logger.addHandler(ch)
         
     def setUp(self):
@@ -119,7 +102,7 @@ class TestLccv(unittest.TestCase):
             def __init__(self, fittime):
                 self.fittime = fittime
 
-            def __call__(self, learner_inst, size, timeout, base_scoring, additional_scorings, vals):
+            def __call__(self, learner_inst, anchor, timeout, base_scoring, additional_scorings, vals):
                 results = {
                     "fittime": self.fittime
                 }
@@ -136,7 +119,14 @@ class TestLccv(unittest.TestCase):
         for i, evaluator in enumerate([evaluator1, evaluator2]):
 
             # first test in isolation without LCCV
-            results = evaluator1(None, None, None, ("accuracy", sklearn.metrics.get_scorer("accuracy")), [], "test")
+            results = evaluator1(
+                learner_inst=None,
+                anchor=None,
+                timeout=None,
+                base_scoring=("accuracy", sklearn.metrics.get_scorer("accuracy")),
+                additional_scorings=[],
+                vals="test"
+            )
             self.assertIsNotNone(results)
 
             self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
@@ -172,7 +162,7 @@ class TestLccv(unittest.TestCase):
         learner = sklearn.linear_model.LogisticRegression()
         features, labels = sklearn.datasets.load_digits(return_X_y=True)
         for scoring, is_binary in zip(["accuracy", "top_k_accuracy", "neg_log_loss", "roc_auc"], [False, True, False, True]):
-            self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
+            self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__} with scoring  {scoring}")
 
             y = (labels == 0 if is_binary else labels)
 
@@ -205,7 +195,7 @@ class TestLccv(unittest.TestCase):
             means = np.array([e["mean"] for size, e in res.items() if size > 16])
             if scoring == "neg_log_loss":
                 means *= -1
-            self.assertTrue(np.all(means >= 0))
+            self.assertTrue(np.all(means >= 0), f"Means for {scoring} should be non-negative but are {means}")
             
     def test_custom_schedule(self):
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
@@ -303,7 +293,7 @@ class TestLccv(unittest.TestCase):
                 y,
                 r=r,
                 target_anchor=.8,
-                MAX_EVALUATIONS=5,
+                max_evaluations=5,
                 base_scoring=scoring
             )[0]
             end = time.time()
@@ -378,7 +368,7 @@ class TestLccv(unittest.TestCase):
             # run 80lccv
             self.logger.info("Running 80LCCV")
             start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, MAX_EVALUATIONS=5, seed = 2)[0]
+            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, max_evaluations=5, seed=2)[0]
             end = time.time()
             runtime_80lccv = end - start
             self.logger.info(f"Finished 80LCCV within {round(runtime_80lccv, 2)}s with score {np.round(score_80lccv, 3)}. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
@@ -450,7 +440,7 @@ class TestLccv(unittest.TestCase):
             # run 80lccv
             self.logger.info("Running 80LCCV")
             start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, MAX_EVALUATIONS=5, timeout=timeout)[0]
+            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, max_evaluations=5, timeout=timeout)[0]
             end = time.time()
             runtime_80lccv = end - start
             self.assertTrue(runtime_80lccv <= timeout, msg=f"Permitted runtime exceeded. Permitted was {timeout}s but true runtime was {runtime_80lccv}")
