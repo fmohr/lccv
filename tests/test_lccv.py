@@ -12,7 +12,7 @@ import pandas as pd
 
 
 def get_dataset(openmlid):
-    ds = openml.datasets.get_dataset(openmlid)
+    ds = openml.datasets.get_dataset(openmlid, download_data=True)
     df = ds.get_data()[0].dropna()
     y = df[ds.default_target_attribute].values
     X = pd.get_dummies(df[[c for c in df.columns if c != ds.default_target_attribute]]).values.astype(float)
@@ -25,6 +25,7 @@ class TestLccv(unittest.TestCase):
     
     learners = [sklearn.tree.DecisionTreeClassifier]#sklearn.svm.LinearSVC, sklearn.tree.ExtraTreeClassifier, sklearn.linear_model.LogisticRegression, sklearn.linear_model.PassiveAggressiveClassifier, sklearn.linear_model.Perceptron, sklearn.linear_model.RidgeClassifier, sklearn.linear_model.SGDClassifier, sklearn.neural_network.MLPClassifier, sklearn.discriminant_analysis.LinearDiscriminantAnalysis, sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis, sklearn.naive_bayes.BernoulliNB, sklearn.naive_bayes.MultinomialNB, sklearn.neighbors.KNeighborsClassifier, sklearn.ensemble.ExtraTreesClassifier, sklearn.ensemble.RandomForestClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.GradientBoostingClassifier, sklearn.ensemble.HistGradientBoostingClassifier]
 
+    @staticmethod
     def setUpClass():
         
         ch = logging.StreamHandler()
@@ -42,7 +43,7 @@ class TestLccv(unittest.TestCase):
         lccv_logger.setLevel(logging.INFO)
         lccv_logger.addHandler(ch)
         elm_logger = logging.getLogger("elm")
-        elm_logger.setLevel(logging.INFO)
+        elm_logger.setLevel(logging.WARN)
         elm_logger.addHandler(ch)
         
     def setUp(self):
@@ -50,6 +51,12 @@ class TestLccv(unittest.TestCase):
         self.lccv_logger = logging.getLogger("lccv")
 
     def test_partition_train_test_data(self):
+
+        """
+            tests whether the partitions created with the LCCV partition function are propert and reproducible.
+        :return:
+        """
+
         self.logger.info("Start Test on Partitioning")
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         for seed in [0, 1, 2, 3, 4, 5]:
@@ -58,12 +65,14 @@ class TestLccv(unittest.TestCase):
             n_tr = 150 - n_te
             f_tr, l_tr, f_te, l_te = lccv._partition_train_test_data(
                 features, labels, n_te, seed)
+
             # check correct sizes
             self.assertEqual(f_tr.shape, (n_tr, 4))
             self.assertEqual(l_tr.shape, (n_tr, ))
             self.assertEqual(f_te.shape, (n_te, 4))
             self.assertEqual(l_te.shape, (n_te, ))
-            # assume exact same test set, also when train set is double
+
+            # check reproducibility for same seed
             f_tr2, l_tr2, f_te2, l_te2 = lccv._partition_train_test_data(
                 features, labels, n_te, seed)
             np.testing.assert_array_equal(f_te, f_te2)
@@ -72,22 +81,32 @@ class TestLccv(unittest.TestCase):
             np.testing.assert_array_equal(l_tr, l_tr2)
             self.logger.info(f"Finished test for seed {seed}")
 
-    '''
-        Just test whether the function
-            * runs through successfully,
-            * syntactically behaves well, and
-            * produces (syntactically) the desired results.
-    '''
     def test_lccv_normal_function(self):
+        '''
+                Just test whether the function
+                    * runs through successfully,
+                    * syntactically behaves well, and
+                    * produces (syntactically) the desired results.
+            '''
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
-        _, _, res, _ = lccv.lccv(learner, features, labels, r = 0.0, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger)
+        _, _, res, elm = lccv.lccv(
+            learner,
+            features,
+            labels,
+            r=0.0,
+            base=2,
+            min_exp=4,
+            enforce_all_anchor_evaluations=True,
+            logger=self.lccv_logger
+        )
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 135})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
+        self.assertTrue(isinstance(elm.df, pd.DataFrame))
         self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
         
     def test_lccv_custom_evaluator(self):
@@ -198,10 +217,23 @@ class TestLccv(unittest.TestCase):
             self.assertTrue(np.all(means >= 0), f"Means for {scoring} should be non-negative but are {means}")
             
     def test_custom_schedule(self):
+        """
+            test that everything works fine if one provide a custom schedule over anchors
+        :return:
+        """
         features, labels = sklearn.datasets.load_iris(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test with custom schedule of LCCV on {learner.__class__.__name__}")
-        _, _, _, elm = lccv.lccv(learner, features, labels, r=0.95, schedule=[10, 20], enforce_all_anchor_evaluations=False, logger=self.lccv_logger, seed = 12)
+        _, _, _, elm = lccv.lccv(
+            learner,
+            features,
+            labels,
+            r=0.95,
+            schedule=[10, 20],
+            enforce_all_anchor_evaluations=False,
+            logger=self.lccv_logger,
+            seed=12
+        )
         train_sizes = elm.df["anchor"].values
         self.assertEqual(10, train_sizes[0])
         self.assertEqual(2, len(np.unique(train_sizes)))
@@ -233,29 +265,122 @@ class TestLccv(unittest.TestCase):
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
         self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
-        
-    def test_lccv_pruning(self):
+
+    def test_that_lccv_does_not_skip_immediately_but_eventually_to_highest_anchor(self):
+
+        X, y = get_dataset(737)
+
+        # the logic should work independently of whether train data is used or not since this is only for pruning
+        for use_train in [True, False]:
+            learners = [
+                sklearn.tree.DecisionTreeClassifier(),
+                sklearn.ensemble.RandomForestClassifier(random_state=42)
+            ]
+
+            r = -np.inf
+            for i, learner in enumerate(learners):
+                score, _, res, _ = lccv.lccv(
+                    learner,
+                    X,
+                    y,
+                    r=r,
+                    base=2,
+                    min_exp=4,
+                    logger=self.lccv_logger,
+                    use_train_curve=use_train
+                )
+                if score >= r:
+                    r = np.max([score, r])
+
+                if i == 1:  # RF should jump early
+                    self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 2796})
+                    for key, val in res.items():
+                        self.logger.info(f"Key: {key}, Val: {val}")
+                        self.assertFalse(np.isnan(val['conf'][0]))
+                        self.assertFalse(np.isnan(val['conf'][1]))
+
+    def test_lccv_pruning_in_real_case(self):
+
+        X, y = get_dataset(737)
+        learners = [
+            sklearn.tree.DecisionTreeClassifier(random_state=42),
+            sklearn.dummy.DummyClassifier()
+        ]
+
+        r = -np.inf
+        for i, learner in enumerate(learners):
+            score, _, res, _ = lccv.lccv(
+                learner,
+                X,
+                y,
+                r=r,
+                base=2,
+                min_exp=4,
+                logger=self.lccv_logger,
+                use_train_curve=False
+            )
+            if score >= r:
+                r = np.max([score, r])
+
+            if i == 1:  # majority classifier should stop early
+                self.assertTrue(
+                    max(res.keys()) <= 1024,
+                    f"Biggest anchor evaluated by majority classifier should be 1024 but is {max(res.keys())}"
+                )
+                for key, val in res.items():
+                    self.logger.info(f"Key: {key}, Val: {val}")
+                    self.assertFalse(np.isnan(val['conf'][0]))
+                    self.assertFalse(np.isnan(val['conf'][1]))
+
+            if i == 1:  # XT-Forest should jump early
+                self.assertTrue(
+                    max(res.keys()) <= 1024,
+                    f"Biggest anchor evaluated by majority classifier should be 1024 but is {max(res.keys())}"
+                )
+                for key, val in res.items():
+                    self.logger.info(f"Key: {key}, Val: {val}")
+                    self.assertFalse(np.isnan(val['conf'][0]))
+                    self.assertFalse(np.isnan(val['conf'][1]))
+
+    def test_lccv_pruning_in_theoretic_cases(self):
         features, labels = sklearn.datasets.load_digits(return_X_y=True)
         learner = sklearn.tree.DecisionTreeClassifier(random_state=42)
         self.logger.info(f"Starting test of LCCV on {learner.__class__.__name__}")
         
-        r = 2.0 # this is not reachable (in accuracy), so there should be a pruning
+        r = 2.0  # this is not reachable (in accuracy), so there should be a pruning
         
-        _, _, res, _ = lccv.lccv(learner, features, labels, r=r, base=2, min_exp=4, enforce_all_anchor_evaluations=True, logger=self.lccv_logger, use_train_curve = False)
+        _, _, res, _ = lccv.lccv(
+            learner,
+            features,
+            labels,
+            r=r,
+            base=2,
+            min_exp=4,
+            enforce_all_anchor_evaluations=True,
+            logger=self.lccv_logger,
+            use_train_curve=False
+        )
         self.assertSetEqual(set(res.keys()), {16, 32, 64, 128, 256})
         for key, val in res.items():
             self.logger.info(f"Key: {key}, Val: {val}")
             self.assertFalse(np.isnan(val['conf'][0]))
             self.assertFalse(np.isnan(val['conf'][1]))
         self.logger.info(f"Finished test of LCCV on {learner.__class__.__name__}")
-            
 
-        
-    """
-        This test checks whether the results are equivalent to a 5CV or 10CV
-    """
-    @parameterized.expand(list(it.product(preprocessors, learners, [61], ["accuracy"])))#[61, 1464])))
-    def test_lccv_runtime_and_result_bare(self, preprocessor, learner, dataset, scoring):
+    @parameterized.expand(list(
+        it.product(
+            preprocessors,
+            learners,
+            [3, 61, 737, 772, 1464, 1485],
+            [5, 10],
+            ["accuracy", "neg_log_loss"]
+        )
+    ))
+    def test_that_lccv_is_comparable_to_mccv(self, preprocessor, learner, dataset, folds, scoring):
+        """
+                This test checks whether the results are equivalent to MCCV and runtime not much worse.
+                LCCV must not be more than 50% slower than MCCV (theoretically not more than 100% slower).
+        """
         X, y = get_dataset(dataset)
         r = -np.inf
         self.logger.info(f"Start Test LCCV when running with r={r} on dataset {dataset}")
@@ -268,153 +393,80 @@ class TestLccv(unittest.TestCase):
                 pp = preprocessor(copy=False)
             steps.append(("pp", pp))
         learner_inst = learner()
-        if "warm_start" in learner_inst.get_params().keys(): # active warm starting if available, because this can cause problems.
+
+        # active warm starting if available, because this can cause problems, and we want to cover the case.
+        if "warm_start" in learner_inst.get_params().keys():
             learner_inst = learner(warm_start=True)
         steps.append(("predictor", learner_inst))
         pl = sklearn.pipeline.Pipeline(steps)
         
         # do tests
         try:
-            
-            # run 5-fold CV
-            self.logger.info("Running 5CV")
-            start = time.time()
-            score_5cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, scoring = scoring, cv=5)["test_score"])
-            end = time.time()
-            runtime_5cv = end - start
-            self.logger.info(f"Finished 5CV within {runtime_5cv}s.")
 
-            # run 80lccv
-            self.logger.info("Running 80LCCV")
+            train_size = np.round(1 - 1 / folds, 2)
+            self.logger.info(f"Running {folds}-MCCV for train size {train_size}")
             start = time.time()
-            score_80lccv = lccv.lccv(
+            cv_result = sklearn.model_selection.cross_validate(
+                sklearn.base.clone(pl),
+                X,
+                y,
+                cv=sklearn.model_selection.StratifiedShuffleSplit(n_splits=folds, train_size=train_size),
+                scoring=scoring
+            )
+            score_cv = np.mean(cv_result["test_score"])
+            std_in_cv = np.std(cv_result["test_score"])
+            end = time.time()
+            runtime_cv = end - start
+            self.logger.info(f"Finished {folds}CV within {round(runtime_cv, 2)}s with score {np.round(score_cv, 3)}.")
+
+            # run LCCV
+            lccv_name = f"{int(100 * train_size)}LCCV"
+            self.logger.info(f"Running {lccv_name}")
+            start = time.time()
+            score_lccv, _, res, elm = lccv.lccv(
                 sklearn.base.clone(pl),
                 X,
                 y,
                 r=r,
-                target_anchor=.8,
-                max_evaluations=5,
+                target_anchor=train_size,
+                max_evaluations=folds,
                 base_scoring=scoring
-            )[0]
+            )
             end = time.time()
-            runtime_80lccv = end - start
-            self.logger.info(f"Finished 80LCCV within {runtime_80lccv}s. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
-            self.assertFalse(np.isnan(score_80lccv))
+            runtime_lccv = end - start
+            self.logger.info(f"""
+                Finished {lccv_name} within {round(runtime_lccv, 2)}s with score {np.round(score_lccv, 3)}.
+                Runtime diff was {np.round(runtime_cv - runtime_lccv, 1)}s.
+                Performance diff was {np.round(score_cv - score_lccv, 4)}.
+                Standard Deviation observed in LCCV at highest anchor was {np.round(std_in_cv, 4)}."""
+            )
+            self.assertFalse(np.isnan(score_lccv))
 
             # check runtime and result
-            tol = 0.1#0.05 if dataset != 61 else 0.1
-            self.assertTrue(runtime_80lccv <= (runtime_5cv + 1), msg=f"Runtime of 80lccv was {runtime_80lccv}, which is more than the {runtime_5cv} of 5CV. Pipeline was {pl} and dataset {dataset}")
-            self.assertTrue(np.abs(score_5cv - score_80lccv) <= tol, msg=f"Avg Score of 80lccv was {score_80lccv}, which deviates by more than {tol} from the {score_5cv} of 5CV. Pipeline was {pl} and dataset {dataset}")
-            
-            
-            # run 10-fold CV
-            self.logger.info("Running 10CV")
-            start = time.time()
-            score_10cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
-            end = time.time()
-            runtime_10cv = end - start
-            self.logger.info(f"Finished 10CV within {runtime_10cv}s.")
-
-            # run 90lccv
-            self.logger.info("Running 90LCCV")
-            start = time.time()
-            score_90lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r = r, target_anchor=.9)[0]
-            end = time.time()
-            runtime_90lccv = end - start
-            self.logger.info(f"Finished 90LCCV within {runtime_90lccv}s. Runtime diff was {np.round(runtime_10cv - runtime_90lccv, 1)}s. Performance diff was {np.round(score_10cv - score_90lccv, 2)}.")
-
-            # check runtime and result
-            tol = .1# 0.05 if dataset != 61 else 0.1
-            self.assertTrue(runtime_90lccv <= runtime_10cv + 1, msg=f"Runtime of 90lccv was {runtime_90lccv}, which is more than the {runtime_10cv} of 10CV. Pipeline was {pl} and dataset {dataset}")
-            self.assertTrue(np.abs(score_10cv - score_90lccv) <= tol, msg=f"Avg Score of 90lccv was {score_90lccv}, which deviates by more than {tol} from the {score_10cv} of 10CV. Pipeline was {pl} and dataset {dataset}")
-        
+            tol = max([0.005 if scoring == "accuracy" else 0.1, 2 * std_in_cv])
+            self.assertTrue(
+                runtime_lccv <= max([runtime_cv + 1, runtime_cv * 1.5]),
+                msg=f"""
+                    Runtime of {lccv_name} was {runtime_lccv},
+                     which is more than 1s and more than 50% more than the  {runtime_cv} runtime of {folds}CV."
+                    "Pipeline was {pl} and dataset {dataset}"""
+            )
+            self.assertTrue(
+                np.abs(score_cv - score_lccv) <= tol,
+                msg=f"""
+                    Avg Score ({scoring}) of {lccv_name} was {np.round(score_lccv, 4)},
+                    which deviates by more than {np.round(tol, 5)} from the {np.round(score_cv, 4)} of {folds}CV.
+                    Standard deviation by LCCV in last fold was {np.round(std_in_cv, 4)}.
+                    Pipeline was {pl} and dataset {dataset}"""
+            )
         except ValueError:
             print("Skipping case in which training is not possible!")
-            
-    """
-        This test checks whether the results are equivalent to a 5CV or 10CV
-    """
-    @parameterized.expand(list(it.product(preprocessors, learners, [(61, 0.0), (1485, 0.2)])))
-    def test_lccv_runtime_and_result_applied(self, preprocessor, learner, dataset):
-        X, y = get_dataset(dataset[0])
-        r = dataset[1]
-        self.logger.info(f"Start Test LCCV when running with r={r} on dataset {dataset[0]} wither preprocessor {preprocessor} and learner {learner}")
-        
-        # configure pipeline
-        steps = []
-        if preprocessor is not None:
-            pp = preprocessor()
-            if "copy" in pp.get_params().keys():
-                pp = preprocessor(copy=False)
-            steps.append(("pp", pp))
-        learner_inst = learner()
-        if "warm_start" in learner_inst.get_params().keys(): # active warm starting if available, because this can cause problems.
-            learner_inst = learner(warm_start=True)
-        steps.append(("predictor", learner_inst))
-        pl = sklearn.pipeline.Pipeline(steps)
-        
-        
-        # do tests
-        try:
-            
-            # run 5-fold CV
-            self.logger.info("Running 5CV")
-            start = time.time()
-            score_5cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=5)["test_score"])
-            end = time.time()
-            runtime_5cv = end - start
-            self.logger.info(f"Finished 5CV within {round(runtime_5cv, 2)}s with score {np.round(score_5cv, 3)}.")
-            
-            # run 80lccv
-            self.logger.info("Running 80LCCV")
-            start = time.time()
-            score_80lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.8, max_evaluations=5, seed=2)[0]
-            end = time.time()
-            runtime_80lccv = end - start
-            self.logger.info(f"Finished 80LCCV within {round(runtime_80lccv, 2)}s with score {np.round(score_80lccv, 3)}. Runtime diff was {np.round(runtime_5cv - runtime_80lccv, 1)}s. Performance diff was {np.round(score_5cv - score_80lccv, 2)}.")
 
-            # check runtime and result
-            tol = 0.05 if dataset != 61 else 0.1
-            self.assertTrue(runtime_80lccv <= 2 * (runtime_5cv + 1), msg=f"Runtime of 80lccv was {runtime_80lccv}, which is more than the {runtime_5cv} of 5CV. Pipeline was {pl}")
-            if np.isnan(score_80lccv):
-                self.assertTrue(score_5cv > r, msg=f"80lccv returned nan even though the {score_5cv} of 10CV is not worse than the threshold {r}. Pipeline was {pl} and dataset {dataset}")
-            else:
-                self.assertTrue(np.abs(score_5cv - score_80lccv) <= tol, msg=f"Avg Score of 80lccv was {score_80lccv}, which deviates by more than {tol} from the {score_5cv} of 5CV. Pipeline was {pl} and dataset {dataset}")
-            
-            
-            # run 10-fold CV
-            self.logger.info("Running 10CV")
-            start = time.time()
-            score_10cv = np.mean(sklearn.model_selection.cross_validate(sklearn.base.clone(pl), X, y, cv=10)["test_score"])
-            end = time.time()
-            runtime_10cv = end - start
-            self.logger.info(f"Finished 10CV within {round(runtime_10cv, 2)}s with score {np.round(score_10cv, 3)}")
-
-            # run 90lccv
-            self.logger.info("Running 90LCCV")
-            start = time.time()
-            score_90lccv = lccv.lccv(sklearn.base.clone(pl), X, y, r=r, target_anchor=.9)[0]
-            end = time.time()
-            runtime_90lccv = end - start
-            self.logger.info(f"Finished 90LCCV within {round(runtime_90lccv, 2)}s with score {np.round(score_90lccv, 3)}. Runtime diff was {np.round(runtime_10cv - runtime_90lccv, 1)}s. Performance diff was {np.round(score_10cv - score_90lccv, 2)}.")
-
-            # check runtime and result
-            tol = 0.05 if dataset != 61 else 0.1
-            self.assertTrue(runtime_90lccv <= 2 * (runtime_10cv + 1), msg=f"Runtime of 90lccv was {runtime_90lccv}, which is more than the {runtime_10cv} of 10CV. Pipeline was {pl}")
-            if np.isnan(score_90lccv):
-                self.assertTrue(score_10cv > r, msg=f"90lccv returned nan even though the {score_10cv} of 10CV is not worse than the threshold {r}. Pipeline was {pl} and dataset {dataset}")
-            else:
-                self.assertTrue(np.abs(score_10cv - score_90lccv) <= tol, msg=f"Avg Score of 90lccv was {score_90lccv}, which deviates by more than {tol} from the {score_10cv} of 10CV. Pipeline was {pl} and dataset {dataset}")
-        
-        except ValueError:
-            print("Skipping case in which training is not possible!")
-            
-            
-    """
-        This checks whether LCCV respects the timeout
-    """
     @parameterized.expand(list(it.product(preprocessors, learners, [(61, 0.0), (1485, 0.2)])))
     def test_lccv_respects_timeouts(self, preprocessor, learner, dataset):
+        """
+            This checks whether LCCV respects the timeout
+        """
         X, y = get_dataset(dataset[0])
         r = dataset[1]
         self.logger.info(f"Start Test LCCV when running with r={r} on dataset {dataset[0]} wither preprocessor {preprocessor} and learner {learner}")

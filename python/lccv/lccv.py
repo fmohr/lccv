@@ -466,16 +466,19 @@ class EmpiricalLearningModel:
 
         def mmf(beta):
             p_a, p_b, p_c, p_d = tuple(beta.astype(float))
-            def fun(x): (p_a * p_b + p_c * x ** p_d)/(p_b + x ** p_d)
+            def fun(x): return (p_a * p_b + p_c * x ** p_d)/(p_b + x ** p_d)
             penalties = []
             for i, anchor in enumerate(anchors):
                 penalty = weights[i] * ((scores[i] - fun(anchor)) ** 2)  # give more weights on higher anchors
                 penalties.append(penalty if not np.isnan(penalty) else 10**6)
             return sum(penalties)
-        
+
+        # the following constraint is inferred from the first derivative of MMF.
+        # it is non-negative for every anchor iff MMF is non-negative
+        # this is expected for validation (more is better). For training, the contrary is expected.
         factor = 1 if validation_curve else -1
         const = {
-            "type": "ineq", "fun": lambda x: -factor * x[1] * (x[2]-x[0])*x[3]
+            "type": "ineq", "fun": lambda x: factor * x[1] * (x[2]-x[0]) * x[3]
         }
 
         a, b, c, d = tuple(scipy.optimize.minimize(mmf, np.array([0.5, 1, 1, -1]), constraints=const).x)
@@ -506,26 +509,33 @@ class EmpiricalLearningModel:
         inner = (-b/(2 * a))**2 - (lr.intercept_ - runtime) / a
         return -b/(2 * a) + np.sqrt(inner)
     
-    def visualize(self, max_anchor=1000, r=None):
+    def visualize(self, plot_train_curve, max_anchor=1000, r=None):
         anchors = sorted(list(pd.unique(self.df["anchor"])))
-        scores_train = [self.get_normal_estimates(a, validation=False) for a in anchors]
-        scores_valid = [self.get_normal_estimates(a, validation=True) for a in anchors]
-        lc_train_params, lc_train = self.get_mmf(False)
-        lc_test_params, lc_valid = self.get_mmf(True)
-        
-        fig, ax = plt.subplots()
-        ax.scatter(anchors, [e["mean"] for e in scores_train])
-        ax.scatter(anchors, [e["mean"] for e in scores_valid])
         domain = np.linspace(64, max_anchor, 100)
-        ax.plot(domain, lc_train(domain), color="C0")
-        ax.fill_between(
-            anchors,
-            [v["mean"] - v["std"] for v in scores_train],
-            [v["mean"] + v["std"] for v in scores_train],
-            alpha=0.2,
-            color="C0"
-        )
-        ax.plot(domain, lc_valid(domain), color="C1")
+
+        # create figure
+        fig, ax = plt.subplots()
+
+        if plot_train_curve:
+
+            # plot train observations
+            scores_train = [self.get_normal_estimates(a, validation=False) for a in anchors]
+            ax.scatter(anchors, [e["mean"] for e in scores_train], color="C0")
+            ax.fill_between(
+                anchors,
+                [v["mean"] - v["std"] for v in scores_train],
+                [v["mean"] + v["std"] for v in scores_train],
+                alpha=0.2,
+                color="C0"
+            )
+
+            # plot estimate of train curve
+            lc_train_params, lc_train = self.get_mmf(False)
+            ax.plot(domain, lc_train(domain), color="C0", label="MMF on train data")
+
+        # plot validation observations
+        scores_valid = [self.get_normal_estimates(a, validation=True) for a in anchors]
+        ax.scatter(anchors, [e["mean"] for e in scores_valid], color="C1")
         ax.fill_between(
             anchors,
             [v["mean"] - v["std"] for v in scores_valid],
@@ -533,7 +543,11 @@ class EmpiricalLearningModel:
             alpha=0.2,
             color="C1"
         )
-        
+
+        # plot LC model
+        lc_test_params, lc_valid = self.get_mmf(True)
+        ax.plot(domain, lc_valid(domain), color="C1", label="MMF on validation data")
+
         # create lines that project based on convexity
         val_at_target_pessimistic, val_at_target_optimistic = self.get_performance_interval_at_target(max_anchor)
         ax.plot(
@@ -551,6 +565,8 @@ class EmpiricalLearningModel:
         
         if r is not None:
             ax.axhline(r, color="black", linestyle="--")
+
+        ax.set_ylim([0, 1])
         plt.show()
     
 
@@ -766,12 +782,17 @@ def lccv(
                 )
                 num_evaluations_at_t += 1
             
-            # check wheter a repair is needed
+            # check wheater a repair is needed
             if num_evaluations_at_t >= min_evals_for_stability and max_t > t > 2:
                 slopes = elm.get_slope_ranges()
                 if len(slopes) < 2:
                     raise Exception(f"There should be two slope ranges for t > 2 (t is {t}), but we observed only 1.")
-                if slopes[t - 2] > slopes[t - 1] and len(elm.get_values_at_anchor(schedule[t - 1])) < max_evaluations:
+                pessimistic_slope_at_t_2 = slopes[t - 2][0]
+                optimistic_slope_at_t_1 = slopes[t - 1][1]
+                if (
+                        pessimistic_slope_at_t_2 > optimistic_slope_at_t_1 and
+                        len(elm.get_values_at_anchor(schedule[t - 1])) < max_evaluations
+                ):
                     repair_convexity = True
                     break
 
@@ -790,25 +811,31 @@ def lccv(
                     "Stopping."
                 )
                 break
-        
+
+        logger.info(
+            f"Finished schedule on {s_t}, and t is now {t}. Performance: {elm.get_normal_estimates(s_t, 4)}."
+        )
+
         # after the last stage, we dont need any more tests
         if t == max_t:
             logger.info("Last iteration has been finished. Not testing anything else anymore.")
             break
         
-        # now decide how to proceed
+        # if convexity needs to be repaired, set t one step back
         if repair_convexity:
             t -= 1
-            logger.debug(f"Convexity needs to be repaired, stepping back. t is now {t}")
+            logger.info(f"Convexity needs to be repaired, stepping back. t is now {t}")
+
+        # if we have at least two convex anchors, and linear extrapolation suggests rejection, then reject
         elif t >= 2 and elm.get_performance_interval_at_target(target_anchor)[1] < r:
-            
+
             if visualize_lcs:
                 logger.debug(f"Visualizing curve")
-                elm.visualize(schedule[-1], r)
-            
+                elm.visualize(use_train_curve, schedule[-1], r)
+
             estimate_for_target_performance = elm.get_performance_interval_at_target(target_anchor)
             optimistic_estimate_for_target_performance = estimate_for_target_performance[1]
-            
+
             # prepare data for cut-off summary
             pessimistic_slope, optimistic_slope = elm.get_slope_range_in_last_segment()
             estimates = elm.get_normal_estimates()
@@ -820,7 +847,7 @@ def lccv(
             last_anchor = s_t
             normal_estimates_last = estimates[last_anchor]
             last_conf = normal_estimates_last["conf"]
-            
+
             # inform about cut-off
             logger.info(
                 f"Impossibly reachable. Best possible score by bound is {optimistic_estimate_for_target_performance}."
@@ -848,30 +875,46 @@ def lccv(
                               f" (pessimistic, optimistic): {estimate_for_target_performance}")
             return np.nan, normal_estimates_last["mean"], estimates, elm
 
-        elif (
-            not enforce_all_anchor_evaluations and (
-                elm.get_mean_performance_at_anchor(s_t) > r or (
-                    t >= 3 and
-                    elm.get_lc_estimate_at_target(target_anchor) >= r - max_estimate_margin_for_full_evaluation
-                )
-            )
-        ):
-            t = max_t
-            if elm.get_mean_performance_at_anchor(s_t) > r:
-                logger.info(
-                    f"Current mean is {elm.get_mean_performance_at_anchor(s_t)}"
-                    f", which is already an improvement over r = {r}. Hence, stepping to full anchor."
-                )
-            else:
-                logger.info(
-                    f"Candidate appears to be competitive (predicted performance at {target_anchor} is"
-                    f"{elm.get_lc_estimate_at_target(target_anchor)}. Jumping to last anchor in schedule: {t}"
-                )
+        # we did not step back, and we did not cancel, so we advance. To t + 1 or to t_max
         else:
-            t += 1
-            logger.info(
-                f"Finished schedule on {s_t}, and t is now {t}. Performance: {elm.get_normal_estimates(s_t, 4)}."
-            )
+
+            # consider if it is an option to jump to the highest anchor immediately
+            jump_to_max_t = False
+            if not enforce_all_anchor_evaluations:
+                if elm.get_mean_performance_at_anchor(s_t) > r:
+                    logger.info(
+                        f"Current mean is {elm.get_mean_performance_at_anchor(s_t)}"
+                        f", which is already an improvement over r = {r}. Hence, stepping to full anchor."
+                    )
+                    jump_to_max_t = True
+                elif t >= 3:
+                    lc_estimate_for_target = elm.get_lc_estimate_at_target(target_anchor)
+                    if lc_estimate_for_target < elm.get_mean_performance_at_anchor(s_t):
+                        logger.warning(
+                            f"Predicted performance at anchor is {np.round(lc_estimate_for_target, 4)}."
+                            f" This is worse than the last observed performance at anchor {s_t},"
+                            f" which is {np.round(elm.get_mean_performance_at_anchor(s_t), 4)}."
+                            " The extrapolation seems to be wrong, this should not happen."
+                            " It could be useful to turn on visualization to study the case."
+                        )
+                    if lc_estimate_for_target >= r - max_estimate_margin_for_full_evaluation:
+                        logger.info(
+                            f"Candidate appears to be competitive (predicted performance at {target_anchor} is"
+                            f"{np.round(lc_estimate_for_target, 4)}."
+                        )
+                        jump_to_max_t = True
+                    else:
+                        logger.info(
+                            f"LC performance prediction for target anchor {target_anchor} is "
+                            f"{np.round(lc_estimate_for_target, 4)}, which does not suggest a new optimum."
+                        )
+
+            # adjusting t
+            if jump_to_max_t:
+                t = max_t
+            else:
+                t += 1
+            logger.info(f"Setting t to {t}")
             if t < max_t:
                 estimates = elm.get_normal_estimates()
                 logger.debug(
@@ -889,6 +932,11 @@ def lccv(
                         f"Estimate for target anchor {target_anchor}:"
                         f"{elm.get_performance_interval_at_target(target_anchor)[1]}"
                     )
+
+        # visualize after each round
+        if t >= 2 and visualize_lcs:
+            logger.debug(f"Visualizing curve")
+            elm.visualize(use_train_curve, max_anchor=schedule[-1], r=r)
     
     # output final reports
     toc = time.time()
@@ -914,7 +962,7 @@ def lccv(
         max_anchor = max([int(k) for k in estimates])
         if visualize_lcs:
             logger.debug(f"Visualizing curve")
-            elm.visualize(max_anchor=schedule[-1], r=r)
+            elm.visualize(use_train_curve, max_anchor=schedule[-1], r=r)
         return estimates[max_anchor]["mean"], estimates[max_anchor]["mean"], estimates, elm
     else:
         max_anchor = max([int(k) for k in estimates])
@@ -925,5 +973,5 @@ def lccv(
         logger.info(f"Target performance: {target_performance}")
         if visualize_lcs:
             logger.debug(f"Visualizing curve")
-            elm.visualize(max_anchor=schedule[-1], r=r)
+            elm.visualize(use_train_curve, max_anchor=schedule[-1], r=r)
         return target_performance, estimates[max_anchor]["mean"], estimates, elm
